@@ -235,7 +235,10 @@ func (a *App) rotatorSet(ctx context.Context, args []string) error {
 		set["meta."+kv[:eq]] = true
 	}
 
-	if prevKind != "" && prevKind != cur.Kind {
+	if prevKind != "" && prevKind != cur.Kind && !set["spec"] {
+		// Only flag-driven kind switches drop the previous kind's fields.
+		// A --spec replace is the user's complete configuration, so its
+		// fields must survive a kind change.
 		clearKindFields(cur, set)
 	}
 	if err := cur.Validate(); err != nil {

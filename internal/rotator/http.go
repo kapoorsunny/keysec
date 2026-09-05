@@ -143,7 +143,7 @@ func extractHTTPValue(body []byte, valuePath, expiresPath string) (string, *time
 			return s, expiryFromAny(doc, expiresPath), nil
 		}
 		// No value path: try new_expires against the whole doc.
-		return string(body), expiryFromAny(doc, expiresPath), nil
+		return strings.TrimSpace(string(body)), expiryFromAny(doc, expiresPath), nil
 	}
 	if valuePath == "" {
 		return strings.TrimSpace(string(body)), nil, nil

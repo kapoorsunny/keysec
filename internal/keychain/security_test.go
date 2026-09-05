@@ -144,6 +144,21 @@ func TestHasNotFound(t *testing.T) {
 	}
 }
 
+func TestUnrelatedLockedWordIsNotKeychainLocked(t *testing.T) {
+	fr := &fakeRunner{
+		stderr: "the database file is locked by another process\n",
+		err:    errors.New("exit status 1"),
+	}
+	s := NewWithRunner(fr)
+	_, err := s.Get(context.Background(), "s", "a")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if errors.Is(err, ErrLocked) {
+		t.Errorf("err = %v, an unrelated 'locked' word must not read as a locked keychain", err)
+	}
+}
+
 func TestUnknownFailureKeepsDetail(t *testing.T) {
 	fr := &fakeRunner{stderr: "some weird failure\nmore detail\n", err: errors.New("boom")}
 	s := NewWithRunner(fr)

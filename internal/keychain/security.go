@@ -133,8 +133,10 @@ func (s *Security) List(ctx context.Context) ([]Entry, error) {
 // can produce friendly, specific messages.
 func (s *Security) classify(stderr []byte, err error) error {
 	msg := strings.ToLower(string(stderr))
+	// "locked" alone is too broad (a filesystem can report it too); a
+	// locked keychain always names the keychain in the same message.
 	if strings.Contains(msg, "interaction is not allowed") ||
-		strings.Contains(msg, "locked") {
+		(strings.Contains(msg, "keychain") && strings.Contains(msg, "locked")) {
 		return ErrLocked
 	}
 	if isNotFound(err, msg) {

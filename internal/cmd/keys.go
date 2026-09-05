@@ -14,10 +14,10 @@ import (
 
 // listedKey is one enumerated key with its rotator kind resolved.
 type listedKey struct {
-	name     string
-	saved    time.Time // zero when the keychain reports no timestamp
-	rotates  string    // "" when the key has no rotator
-	specErr  bool      // a .rotator companion exists but could not be read
+	name    string
+	saved   time.Time // zero when the keychain reports no timestamp
+	rotates string    // "" when the key has no rotator
+	specErr bool      // a .rotator companion exists but could not be read
 }
 
 // listedKeys enumerates the Keychain and joins each key with its rotator

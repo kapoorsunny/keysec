@@ -145,6 +145,23 @@ func TestHTTPMissingValuePath(t *testing.T) {
 	}
 }
 
+func TestHTTPJSONBodyWithoutPathIsTrimmed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "\n  \"a-token\"  \n")
+	}))
+	defer srv.Close()
+	r, _ := New(&Spec{Kind: KindHTTP, URL: srv.URL})
+	res, err := r.Rotate(context.Background(), Input{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The whole-body fallback is the JSON string as written (quotes kept),
+	// minus surrounding whitespace.
+	if res.Value != `"a-token"` {
+		t.Errorf("value = %q, want the trimmed body", res.Value)
+	}
+}
+
 func TestHTTPValuePathNotString(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"v": 42}`)

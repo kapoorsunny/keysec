@@ -11,8 +11,10 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"repo.flay.ai/root/keysec/internal/key"
 )
@@ -159,7 +161,7 @@ func (s *Spec) Validate() error {
 		if s.Length < 1 {
 			return fmt.Errorf("generate rotator needs a length of at least 1")
 		}
-		if len(s.Charset) > 256 {
+		if utf8.RuneCountInString(s.Charset) > 256 {
 			return fmt.Errorf("charset must be at most 256 characters")
 		}
 	case KindHTTP:
@@ -213,8 +215,9 @@ func ParseExpiry(s string) (*time.Time, error) {
 		u := t.UTC()
 		return &u, nil
 	}
-	var secs int64
-	if _, err := fmt.Sscanf(s, "%d", &secs); err == nil {
+	// The whole string must be an integer: a partial match would silently
+	// reinterpret e.g. "2030-01-01 12:00" as the year 2030.
+	if secs, err := strconv.ParseInt(s, 10, 64); err == nil {
 		t := time.Unix(secs, 0).UTC()
 		return &t, nil
 	}

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"repo.flay.ai/root/keysec/internal/keychain"
 )
 
 // fakeStore is a minimal keychain store for migration tests, keyed by
@@ -37,14 +39,14 @@ func (f *fakeStore) Get(_ context.Context, svc, acct string) (string, error) {
 	if v, ok := f.m[kv(svc, acct)]; ok {
 		return v, nil
 	}
-	return "", errors.New("no such secret")
+	return "", keychain.ErrNotFound
 }
 
 func (f *fakeStore) Delete(_ context.Context, svc, acct string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if _, ok := f.m[kv(svc, acct)]; !ok {
-		return errors.New("no such secret")
+		return keychain.ErrNotFound
 	}
 	delete(f.m, kv(svc, acct))
 	f.deletes = append(f.deletes, svc+"/"+acct)
@@ -126,15 +128,41 @@ func TestRunResolverForDotless(t *testing.T) {
 
 func TestRunAbortsOnPutFailureKeepsFile(t *testing.T) {
 	withHome(t)
-	store := &putErrStore{newFakeStore(nil)}
+	// Seed the legacy location so the move reaches Put (where it fails)
+	// instead of being skipped as a missing secret.
+	store := &putErrStore{newFakeStore(map[string]string{
+		kv("a", "b"): "v",
+	})}
 	writeLegacy(t, `[{"name":"a.b"}]`)
 	_, err := Run(context.Background(), store, nil)
 	if err == nil {
 		t.Fatal("expected failure")
 	}
+	if !strings.Contains(err.Error(), "write failed") {
+		t.Errorf("err = %v, want the put failure", err)
+	}
 	p, _ := Path()
 	if _, statErr := os.Stat(p); statErr != nil {
 		t.Errorf("keys.json must survive a failed migration: %v", statErr)
+	}
+}
+
+func TestRunSkipsEntryWhoseSecretIsMissing(t *testing.T) {
+	withHome(t)
+	store := newFakeStore(nil)
+	writeLegacy(t, `[{"name":"gone.away"}]`)
+	sum, err := Run(context.Background(), store, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sum.Skipped) != 1 || !strings.Contains(sum.Skipped[0].Reason, "missing") {
+		t.Errorf("skipped = %+v, want the missing-secret skip", sum.Skipped)
+	}
+	if len(sum.Moved) != 0 {
+		t.Errorf("moved = %v, want none", sum.Moved)
+	}
+	if !sum.FileRemoved {
+		t.Error("a run whose entries all skipped should still remove the index")
 	}
 }
 
@@ -162,5 +190,3 @@ type putErrStore struct {
 func (s *putErrStore) Put(_ context.Context, _, _, _ string) error {
 	return errors.New("write failed")
 }
-
-var _ = strings.TrimSpace

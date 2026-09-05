@@ -22,17 +22,18 @@ func (g *generateRotator) Rotate(_ context.Context, in Input) (Result, error) {
 	if charset == "" {
 		charset = defaultCharset
 	}
-	if len(charset) > 256 {
+	runes := []rune(charset)
+	if len(runes) > 256 {
 		return Result{}, errf("charset must be at most 256 characters")
 	}
-	max := big.NewInt(int64(len(charset)))
-	b := make([]byte, length)
-	for i := range b {
+	max := big.NewInt(int64(len(runes)))
+	out := make([]rune, length)
+	for i := range out {
 		n, err := rand.Int(rand.Reader, max)
 		if err != nil {
 			return Result{}, errf("secure random: %v", err)
 		}
-		b[i] = charset[n.Int64()]
+		out[i] = runes[n.Int64()]
 	}
-	return Result{Value: string(b)}, nil
+	return Result{Value: string(out)}, nil
 }

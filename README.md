@@ -179,7 +179,7 @@ speaks git's own protocol and ignores `--json`.
 4. hidden prompts, confirmations, colors, friendly errors
 5. `git-credential` shim (git protocol → Keychain), no index anymore
 6. `rotator set|get|rm` and `rotate`, `rotate --all [--due]`, `audit`, `doctor`
-7. one Go binary, no dependencies beyond the standard toolchain, installs to `/usr/local/bin/keysec`
+7. one Go binary (standard library plus `golang.org/x/term` for hidden prompts), installs to `/usr/local/bin/keysec`
 
 **Success looks like:** `keysec set`/`get`/`list` feel like a friendly app;
 your `repo.flay.ai` token lives in the Keychain; git authenticates through it;

@@ -246,7 +246,10 @@ type rmFailSpecStore struct {
 }
 
 func (f *rmFailSpecStore) sk(service, account string) string { return service + "\x00" + account }
-func (f *rmFailSpecStore) Put(ctx context.Context, s, a, v string) error { f.m[f.sk(s, a)] = v; return nil }
+func (f *rmFailSpecStore) Put(ctx context.Context, s, a, v string) error {
+	f.m[f.sk(s, a)] = v
+	return nil
+}
 func (f *rmFailSpecStore) Get(ctx context.Context, s, a string) (string, error) {
 	v, ok := f.m[f.sk(s, a)]
 	if !ok {
@@ -269,8 +272,8 @@ func (f *rmFailSpecStore) List(ctx context.Context) ([]keychain.Entry, error) { 
 
 func TestRmSurvivesCompanionDeleteFailure(t *testing.T) {
 	store := &rmFailSpecStore{m: map[string]string{
-		"keysec\x00k.v":          "x",
-		"keysec\x00k.v.rotator":  `{"kind":"generate","length":32}`,
+		"keysec\x00k.v":         "x",
+		"keysec\x00k.v.rotator": `{"kind":"generate","length":32}`,
 	}}
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
@@ -344,6 +347,33 @@ func TestRotatorSetJSON(t *testing.T) {
 	}
 	if s.Kind != "generate" || s.Length != 48 {
 		t.Errorf("stored spec = %+v", s)
+	}
+}
+
+func TestRotatorSetSpecSwitchesKind(t *testing.T) {
+	ta := newTestApp(t)
+	ta.store.m["keysec\x00k.v"] = "x"
+	ta.store.m["keysec\x00k.v.rotator"] = `{"kind":"generate","length":48}`
+
+	rc := ta.run(t, "rotator", "set", "--json", "k.v",
+		"--spec", `{"kind":"http","url":"https://id.example/new-token","new_expires":"data.expires_at"}`)
+	if rc != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%q", rc, ta.stderr.String())
+	}
+	var s struct {
+		Kind       string `json:"kind"`
+		URL        string `json:"url"`
+		NewExpires string `json:"new_expires"`
+		Length     int    `json:"length"`
+	}
+	if err := json.Unmarshal([]byte(ta.store.m["keysec\x00k.v.rotator"]), &s); err != nil {
+		t.Fatalf("stored spec is not JSON: %v", err)
+	}
+	if s.Kind != "http" || s.URL != "https://id.example/new-token" || s.NewExpires != "data.expires_at" {
+		t.Errorf("stored spec = %+v; --spec fields must survive a kind switch", s)
+	}
+	if s.Length != 0 {
+		t.Errorf("generate length leaked into the http spec: %+v", s)
 	}
 }
 

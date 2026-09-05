@@ -135,7 +135,7 @@ func (a *App) runStoreErr(ctx context.Context, keyName string, err error) *machi
 func runStartError(prog string, err error) *machine.Error {
 	var ee *exec.Error
 	if errors.As(err, &ee) && errors.Is(ee.Err, os.ErrNotExist) {
-		return machine.IO("no such command '"+prog+"'")
+		return machine.IO("no such command '" + prog + "'")
 	}
 	return machine.IO("could not run '" + prog + "': " + err.Error())
 }

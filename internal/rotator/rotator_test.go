@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestNewUnknownKind(t *testing.T) {
@@ -25,6 +26,8 @@ func TestValidate(t *testing.T) {
 		{&Spec{Kind: KindGenerate, Length: 0}, true},      // length must be >= 1
 		{&Spec{Kind: KindGenerate, Length: 16, Charset: "ab"}, false},
 		{&Spec{Kind: KindGenerate, Length: 16, Charset: strings.Repeat("a", 300)}, true},
+		{&Spec{Kind: KindGenerate, Length: 4, Charset: strings.Repeat("é", 256)}, false}, // bytes double the runes
+		{&Spec{Kind: KindGenerate, Length: 4, Charset: strings.Repeat("é", 257)}, true},
 		{&Spec{Kind: KindVendorGithub, AuthKey: "gitlab.repo_flay"}, false},
 		{&Spec{Kind: KindVendorGithub, AuthKey: "bad/name"}, true},
 		{&Spec{Kind: KindVendorGitlab, Meta: map[string]string{"url": "https://git.example"}}, false},
@@ -85,6 +88,25 @@ func TestGenerateUnique(t *testing.T) {
 	}
 }
 
+func TestGenerateMultibyteCharset(t *testing.T) {
+	r, err := New(&Spec{Kind: KindGenerate, Length: 8, Charset: "é"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := r.Rotate(context.Background(), Input{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := utf8.RuneCountInString(res.Value); n != 8 {
+		t.Fatalf("rune count = %d, want 8 (value %q)", n, res.Value)
+	}
+	for _, c := range res.Value {
+		if c != 'é' {
+			t.Fatalf("value contains %q, want only the charset rune", c)
+		}
+	}
+}
+
 func TestRenderTemplate(t *testing.T) {
 	in := Input{Key: "k", Value: "v", Meta: map[string]string{"host": "example.com"}}
 	got := RenderTemplate("/go/{key}/{value}?h={meta.host}&x={meta.missing}", in)
@@ -130,5 +152,15 @@ func TestParseExpiry(t *testing.T) {
 	}
 	if _, err := ParseExpiry("garbage"); err == nil {
 		t.Error("ParseExpiry(garbage) succeeded")
+	}
+}
+
+// Partially numeric strings must be rejected: a leading number alone must
+// never stand in for the whole expiry.
+func TestParseExpiryRejectsPartialNumbers(t *testing.T) {
+	for _, s := range []string{"2030-01-01 12:00", "1893456000abc", " 1893456000"} {
+		if _, err := ParseExpiry(s); err == nil {
+			t.Errorf("ParseExpiry(%q) succeeded, want an error", s)
+		}
 	}
 }
