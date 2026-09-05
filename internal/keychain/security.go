@@ -59,20 +59,14 @@ func (devNullReader) Read(p []byte) (int, error) { return 0, io.EOF }
 
 // Put saves value under (service, account), replacing any existing item.
 //
-// The security CLI asks for the password and then retypes it, reading
-// both from stdin when stdin is not a terminal. So the value is piped
-// in twice. Values containing newlines cannot survive that line-based
-// exchange and are passed as an argument instead.
+// The value is passed to the security CLI as a "-w <value>" argument.
+// Piping it over stdin is not viable: even with stdin redirected, the
+// CLI prints its "password data for new item" / "retype password"
+// prompts to the terminal and appears to be asking the user for a
+// password. Passing the value as an argument keeps Put silent.
 func (s *Security) Put(ctx context.Context, service, account, value string) error {
-	args := []string{"add-generic-password", "-U", "-a", account, "-s", service}
-	var stdin io.Reader
-	if strings.Contains(value, "\n") {
-		args = append(args, "-w", value)
-	} else {
-		args = append(args, "-w")
-		stdin = strings.NewReader(value + "\n" + value + "\n")
-	}
-	_, stderr, err := s.run.Run(ctx, stdin, s.binary, args...)
+	args := []string{"add-generic-password", "-U", "-a", account, "-s", service, "-w", value}
+	_, stderr, err := s.run.Run(ctx, nil, s.binary, args...)
 	if err != nil {
 		return s.classify(stderr, err)
 	}

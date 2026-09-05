@@ -37,7 +37,7 @@ func hasArg(args []string, want string) bool {
 	return false
 }
 
-func TestPutPipesValueTwice(t *testing.T) {
+func TestPutPassesValueAsArg(t *testing.T) {
 	fr := &fakeRunner{}
 	s := NewWithRunner(fr)
 	if err := s.Put(context.Background(), "svc", "acct", "topsecret"); err != nil {
@@ -46,13 +46,11 @@ func TestPutPipesValueTwice(t *testing.T) {
 	if !hasArg(fr.lastArgs, "-U") {
 		t.Errorf("Put should upsert (-U): %v", fr.lastArgs)
 	}
-	if want := "topsecret\ntopsecret\n"; fr.lastIn != want {
-		t.Errorf("stdin = %q, want %q (value piped, no argv leak)", fr.lastIn, want)
+	if !hasArg(fr.lastArgs, "-w") || !hasArg(fr.lastArgs, "topsecret") {
+		t.Errorf("value passed via -w argument: %v", fr.lastArgs)
 	}
-	for _, a := range fr.lastArgs {
-		if a == "topsecret" {
-			t.Errorf("value leaked into argv: %v", fr.lastArgs)
-		}
+	if fr.lastIn != "" {
+		t.Errorf("value must not be piped (prompts the terminal): %q", fr.lastIn)
 	}
 }
 

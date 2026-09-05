@@ -190,8 +190,9 @@ func ParseDuration(s string) (time.Duration, error) {
 	return time.ParseDuration(s)
 }
 
-// ParseExpiry reads an expiry value in either RFC 3339 form or seconds
-// since the Unix epoch. It returns a nil time when s is empty.
+// ParseExpiry reads an expiry value in either RFC 3339 form, a bare
+// date (YYYY-MM-DD), or seconds since the Unix epoch. It returns a nil
+// time when s is empty.
 func ParseExpiry(s string) (*time.Time, error) {
 	if s == "" {
 		return nil, nil
@@ -202,12 +203,16 @@ func ParseExpiry(s string) (*time.Time, error) {
 	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
 		return &t, nil
 	}
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		u := t.UTC()
+		return &u, nil
+	}
 	var secs int64
 	if _, err := fmt.Sscanf(s, "%d", &secs); err == nil {
 		t := time.Unix(secs, 0).UTC()
 		return &t, nil
 	}
-	return nil, fmt.Errorf("unrecognized expiry %q (want RFC 3339 or unix seconds)", s)
+	return nil, fmt.Errorf("unrecognized expiry %q (want RFC 3339, YYYY-MM-DD, or unix seconds)", s)
 }
 
 var metaKeyRe = regexp.MustCompile(`\{meta\.([A-Za-z0-9_.-]+)\}`)

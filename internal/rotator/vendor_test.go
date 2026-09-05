@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 type vendorCall struct {
@@ -64,7 +65,10 @@ func githubServer(log *vendorLog) *httptest.Server {
 	}))
 }
 
-func gitlabServer(log *vendorLog) *httptest.Server {
+// gitlabServer models a GitLab PAT API. When allowSelfRotate is true the
+// self-rotate endpoint returns a replacement token; otherwise it refuses
+// with 405 so the provider falls back to token creation.
+func gitlabServer(log *vendorLog, allowSelfRotate bool) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body := make([]byte, 0)
 		if r.Body != nil {
@@ -74,6 +78,13 @@ func gitlabServer(log *vendorLog) *httptest.Server {
 		}
 		log.record(r.Method, r.URL.Path, r.Header.Get("PRIVATE-TOKEN"), body)
 		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/personal_access_tokens/self/rotate"):
+			if !allowSelfRotate {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				fmt.Fprint(w, `{"message":"method not allowed"}`)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"id": 13, "token": "glpat_rotated", "expires_at": "2030-02-03"})
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/personal_access_tokens"):
 			json.NewEncoder(w).Encode(map[string]any{"id": 7, "token": "glpat_new", "expires_at": "2030-01-01T00:00:00Z"})
 		case r.Method == http.MethodDelete:
@@ -165,9 +176,47 @@ func TestVendorGithubNeedsScopesOrPermissions(t *testing.T) {
 	}
 }
 
+func TestVendorGitlabSelfRotate(t *testing.T) {
+	var log vendorLog
+	srv := gitlabServer(&log, true)
+	defer srv.Close()
+
+	r, _ := New(&Spec{Kind: KindVendorGitlab,
+		Meta: map[string]string{"url": srv.URL, "expiration_days": "30"}})
+	res, err := r.Rotate(context.Background(), Input{Credential: "glpat_old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Value != "glpat_rotated" || res.ID != "13" {
+		t.Errorf("value/id = %q/%q", res.Value, res.ID)
+	}
+	if log.count() != 1 {
+		t.Fatalf("calls = %d, want 1 (self-rotate only)", log.count())
+	}
+	call := log.last()
+	if call.method != "POST" || call.path != "/api/v4/personal_access_tokens/self/rotate" {
+		t.Errorf("call = %s %s", call.method, call.path)
+	}
+	if call.auth != "glpat_old" {
+		t.Errorf("auth = %q", call.auth)
+	}
+	want := time.Now().UTC().AddDate(0, 0, 30).Format("2006-01-02")
+	if got, _ := json.Marshal(call.body); string(got) != `{"expires_at":"`+want+`"}` {
+		t.Errorf("body = %s, want expires_at %s", got, want)
+	}
+	// GitLab self-rotate returns a bare date; the expiry must still parse.
+	if res.ExpiresAt == nil || res.ExpiresAt.Format("2006-01-02") != "2030-02-03" {
+		t.Errorf("expires = %v", res.ExpiresAt)
+	}
+	// Old token died immediately, not after a grace period.
+	if res.OldValidUntil == nil || res.OldValidUntil.After(time.Now()) {
+		t.Errorf("old valid until = %v, want ~now", res.OldValidUntil)
+	}
+}
+
 func TestVendorGitlabCreateAndRevoke(t *testing.T) {
 	var log vendorLog
-	srv := gitlabServer(&log)
+	srv := gitlabServer(&log, false)
 	defer srv.Close()
 
 	r, _ := New(&Spec{Kind: KindVendorGitlab,
@@ -180,10 +229,13 @@ func TestVendorGitlabCreateAndRevoke(t *testing.T) {
 	if res.Value != "glpat_new" || res.ID != "7" {
 		t.Errorf("value/id = %q/%q", res.Value, res.ID)
 	}
-	if log.count() != 2 {
-		t.Fatalf("calls = %d, want 2", log.count())
+	if log.count() != 3 {
+		t.Fatalf("calls = %d, want 3 (self-rotate refused, create, revoke)", log.count())
 	}
-	create, del := log.calls[0], log.calls[1]
+	attempt, create, del := log.calls[0], log.calls[1], log.calls[2]
+	if attempt.method != "POST" || attempt.path != "/api/v4/personal_access_tokens/self/rotate" {
+		t.Errorf("attempt = %s %s", attempt.method, attempt.path)
+	}
 	if create.method != "POST" || create.path != "/api/v4/personal_access_tokens" {
 		t.Errorf("create = %s %s", create.method, create.path)
 	}
@@ -221,11 +273,15 @@ func TestVendorCreateNon2xx(t *testing.T) {
 
 func TestVendorRevokeFailureWarns(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/personal_access_tokens/self/rotate"):
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			fmt.Fprint(w, `{"message":"method not allowed"}`)
+		case r.Method == http.MethodPost:
 			json.NewEncoder(w).Encode(map[string]any{"id": 9, "token": "newtoken"})
-			return
+		default:
+			w.WriteHeader(500)
 		}
-		w.WriteHeader(500)
 	}))
 	defer srv.Close()
 	r, _ := New(&Spec{Kind: KindVendorGitlab, Meta: map[string]string{"url": srv.URL}, LastCreatedID: "8"})
