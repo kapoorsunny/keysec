@@ -14,9 +14,10 @@ import (
 
 // listedKey is one enumerated key with its rotator kind resolved.
 type listedKey struct {
-	name    string
-	saved   time.Time // zero when the keychain reports no timestamp
-	rotates string    // "" when the key has no rotator
+	name     string
+	saved    time.Time // zero when the keychain reports no timestamp
+	rotates  string    // "" when the key has no rotator
+	specErr  bool      // a .rotator companion exists but could not be read
 }
 
 // listedKeys enumerates the Keychain and joins each key with its rotator
@@ -36,8 +37,15 @@ func (a *App) listedKeys(ctx context.Context) ([]listedKey, error) {
 			continue
 		}
 		lk := listedKey{name: e.Account, saved: e.Modified}
-		if s, ok, err := a.loadSpec(ctx, e.Account); err == nil && ok {
-			lk.rotates = s.Kind
+		spec, hasSpec, serr := a.loadSpec(ctx, e.Account)
+		switch {
+		case serr != nil:
+			// A companion exists but is corrupt or unreadable. Mark it so
+			// sweeps surface the problem instead of treating the key as one
+			// without a rotator (which would silently skip rotation).
+			lk.specErr = true
+		case hasSpec:
+			lk.rotates = spec.Kind
 		}
 		out = append(out, lk)
 	}

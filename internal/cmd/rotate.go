@@ -131,6 +131,15 @@ func (a *App) rotateCore(ctx context.Context, name string, plan bool) (*machine.
 	if err := a.saveSpec(ctx, k.Name, spec); err != nil {
 		a.ui.Hint("rotated '%s', but updating its rotator spec failed: %v", k.Name, err)
 	}
+	// Retire the provider's previously created token only now that the new
+	// value is safely persisted. A failure here never fails the rotation —
+	// the old credential simply lives on until it expires naturally — but a
+	// successful revoke after a failed write would have been unrecoverable.
+	if res.Revoke != nil {
+		if err := res.Revoke(); err != nil && res.Warning == "" {
+			a.ui.Hint("%s", err)
+		}
+	}
 	if res.Warning != "" {
 		a.ui.Hint("%s", res.Warning)
 	}
@@ -160,6 +169,13 @@ func (a *App) rotateBulk(ctx context.Context, rest []string, plan, all, due bool
 		bulk.Action = "plan"
 	}
 	for _, k := range keys {
+		if k.specErr {
+			bulk.Failed = append(bulk.Failed, machine.RotationFailure{
+				Error: machine.FromError(machine.RotationConfig(k.name, "rotator spec unreadable")),
+			})
+			bulk.OK = false
+			continue
+		}
 		if k.rotates == "" {
 			continue // no rotator configured
 		}

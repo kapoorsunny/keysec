@@ -57,13 +57,20 @@ func (a *App) Remove(ctx context.Context, args []string) error {
 		return nil
 	}
 	if exists {
-		if err := a.store.Delete(ctx, k.Service, k.Account); err != nil && !errors.Is(err, keychain.ErrNotFound) {
+		// If the primary delete fails we bail before touching anything else,
+		// so no partial destructive state is created.
+		err := a.store.Delete(ctx, k.Service, k.Account)
+		if err != nil && !errors.Is(err, keychain.ErrNotFound) {
 			return a.storeError(err)
 		}
 	}
 	if hasRotator {
-		if err := a.store.Delete(ctx, key.ReservedService, key.CompanionName(k.Name)); err != nil && !errors.Is(err, keychain.ErrNotFound) {
-			return a.storeError(err)
+		// The secret (the thing the user asked to remove) is already gone.
+		// A failure here leaves only an orphaned spec behind, so it must not
+		// turn an otherwise-successful rm into a reported failure — warn instead.
+		err := a.store.Delete(ctx, key.ReservedService, key.CompanionName(k.Name))
+		if err != nil && !errors.Is(err, keychain.ErrNotFound) {
+			a.ui.Hint("removed '%s', but could not delete its rotator spec: %v", k.Name, err)
 		}
 	}
 	if a.ui.InJSON() {

@@ -45,6 +45,12 @@ type Result struct {
 	OldValidUntil *time.Time // when the previous value may be revoked/culled
 	Warning       string     // advisory, surfaced but not fatal
 	ID            string     // vendor: id of the created resource (for revoking it later)
+	// Revoke retires a previously created provider-side resource once the
+	// caller has persisted Value. It must only be called after the new value
+	// is safely stored; nil means there is nothing to retire here. Providers
+	// that revoke atomically as part of rotation (e.g. GitLab self-rotate)
+	// leave it nil.
+	Revoke func() error
 }
 
 // Rotator is a rotation provider.

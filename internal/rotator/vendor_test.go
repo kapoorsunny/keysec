@@ -141,16 +141,24 @@ func TestVendorGithubRevokesOwnPrevious(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Second call is the DELETE of the previously created token.
+	// Revocation is deferred until the caller persists the new value, so
+	// Rotate alone must only have created.
+	if got := log.count(); got != 1 {
+		t.Fatalf("calls after rotate = %d, want 1 (create only; revoke deferred)", got)
+	}
+	if res.Revoke == nil {
+		t.Fatal("expected a deferred Revoke hook for the previous token")
+	}
+	if err := res.Revoke(); err != nil {
+		t.Fatalf("revoke failed: %v", err)
+	}
+	// Second call is now the DELETE of the previously created token.
 	if got := log.count(); got != 2 {
-		t.Fatalf("calls = %d, want 2 (create + revoke)", got)
+		t.Fatalf("calls after revoke = %d, want 2 (create + revoke)", got)
 	}
 	del := log.calls[1]
 	if del.method != "DELETE" || del.path != "/user/personal_access_tokens/41" {
 		t.Errorf("revoke call = %s %s", del.method, del.path)
-	}
-	if res.Warning != "" {
-		t.Errorf("unexpected warning: %s", res.Warning)
 	}
 }
 
@@ -229,8 +237,19 @@ func TestVendorGitlabCreateAndRevoke(t *testing.T) {
 	if res.Value != "glpat_new" || res.ID != "7" {
 		t.Errorf("value/id = %q/%q", res.Value, res.ID)
 	}
+	// Revocation is deferred: the create call happens inside Rotate but the
+	// DELETE must not run until the caller invokes res.Revoke().
+	if log.count() != 2 {
+		t.Fatalf("calls after rotate = %d, want 2 (self-rotate refused + create; revoke deferred)", log.count())
+	}
+	if res.Revoke == nil {
+		t.Fatal("expected a deferred Revoke hook for the previous token")
+	}
+	if err := res.Revoke(); err != nil {
+		t.Fatalf("revoke failed: %v", err)
+	}
 	if log.count() != 3 {
-		t.Fatalf("calls = %d, want 3 (self-rotate refused, create, revoke)", log.count())
+		t.Fatalf("calls after revoke = %d, want 3 (self-rotate refused + create + revoke)", log.count())
 	}
 	attempt, create, del := log.calls[0], log.calls[1], log.calls[2]
 	if attempt.method != "POST" || attempt.path != "/api/v4/personal_access_tokens/self/rotate" {
@@ -292,7 +311,16 @@ func TestVendorRevokeFailureWarns(t *testing.T) {
 	if res.Value != "newtoken" {
 		t.Errorf("value = %q", res.Value)
 	}
-	if !strings.Contains(res.Warning, "8") {
-		t.Errorf("warning = %q, want the failed revoke mentioned", res.Warning)
+	if res.Revoke == nil {
+		t.Fatal("expected a deferred Revoke hook for the previous token")
+	}
+	// The failed revoke surfaces as an error from the deferred hook, which
+	// the caller turns into a warning (the rotation itself already succeeded).
+	err = res.Revoke()
+	if err == nil {
+		t.Fatal("revoke should fail against this server")
+	}
+	if !strings.Contains(err.Error(), "8") {
+		t.Errorf("revoke error = %q, want the failed id mentioned", err)
 	}
 }

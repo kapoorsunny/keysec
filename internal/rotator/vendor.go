@@ -132,9 +132,17 @@ func (v *vendorRotator) createAndMaybeRevoke(ctx context.Context, createURL, hea
 	old := now.Add(parseDurationOrDefault(v.spec.Grace, defaultGrace))
 	res := Result{Value: token, ExpiresAt: expiresAt, OldValidUntil: &old, ID: id}
 
+	// Retiring the previous token is deferred to the caller (see
+	// rotateCore): it must not happen until the new value is persisted,
+	// otherwise a failure between create and store would leave both the old
+	// token revoked and the new one unsaved. The closure captures prev so the
+	// first rotation (no prior id) has nothing to retire.
 	if prev := v.spec.LastCreatedID; prev != "" && prev != id {
-		if err := revoke(prev); err != nil {
-			res.Warning = fmt.Sprintf("could not revoke previously created token %s: %v", prev, err)
+		res.Revoke = func() error {
+			if err := revoke(prev); err != nil {
+				return fmt.Errorf("could not revoke previously created token %s: %v", prev, err)
+			}
+			return nil
 		}
 	}
 	return res, nil
@@ -155,8 +163,8 @@ func newVendorResponse(url, headerKey, headerVal string, body []byte) vendorResp
 // doCreate performs the POST and decodes the token fields from the
 // provider's JSON reply.
 func doCreate(ctx context.Context, r vendorResponse) (id, token string, expiresAt *time.Time, err error) {
-	ctx, cancel := context.WithTimeout(ctx, defaultTimeout)
-	defer cancel()
+	// The http.Client below already enforces defaultTimeout; no separate
+	// context deadline is needed.
 	req, err := http.NewRequestWithContext(ctx, r.method, r.url, bytes.NewReader(r.body))
 	if err != nil {
 		return "", "", nil, errf("create request: %v", err)

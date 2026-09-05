@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -234,6 +235,86 @@ func TestRmCascadesToRotator(t *testing.T) {
 	}
 	if _, still := ta.store.m["keysec\x00k.v.rotator"]; still {
 		t.Error("rotator companion still present after rm")
+	}
+}
+
+// rmFailSpecStore fails deletes of rotator companions while letting secret
+// deletes through, to exercise M1: a leftover-spec failure must not turn an
+// otherwise-successful rm into a reported error.
+type rmFailSpecStore struct {
+	m map[string]string
+}
+
+func (f *rmFailSpecStore) sk(service, account string) string { return service + "\x00" + account }
+func (f *rmFailSpecStore) Put(ctx context.Context, s, a, v string) error { f.m[f.sk(s, a)] = v; return nil }
+func (f *rmFailSpecStore) Get(ctx context.Context, s, a string) (string, error) {
+	v, ok := f.m[f.sk(s, a)]
+	if !ok {
+		return "", keychain.ErrNotFound
+	}
+	return v, nil
+}
+func (f *rmFailSpecStore) Delete(ctx context.Context, s, a string) error {
+	if strings.HasSuffix(a, ".rotator") {
+		return errors.New("boom")
+	}
+	delete(f.m, f.sk(s, a))
+	return nil
+}
+func (f *rmFailSpecStore) Has(ctx context.Context, s, a string) (bool, error) {
+	_, ok := f.m[f.sk(s, a)]
+	return ok, nil
+}
+func (f *rmFailSpecStore) List(ctx context.Context) ([]keychain.Entry, error) { return nil, nil }
+
+func TestRmSurvivesCompanionDeleteFailure(t *testing.T) {
+	store := &rmFailSpecStore{m: map[string]string{
+		"keysec\x00k.v":          "x",
+		"keysec\x00k.v.rotator":  `{"kind":"generate","length":32}`,
+	}}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	app := New(store, store, ui.New(stdout, stderr), ui.NewPrompts(strings.NewReader(""), stderr), strings.NewReader(""))
+
+	rc := app.Execute(context.Background(), []string{"rm", "--json", "--yes", "k.v"})
+	if rc != 0 {
+		t.Fatalf("exit = %d, want 0 (companion cleanup failure must not fail rm); stdout=%q stderr=%q", rc, stdout.String(), stderr.String())
+	}
+	if _, still := store.m["keysec\x00k.v"]; still {
+		t.Error("secret should have been deleted")
+	}
+}
+
+func TestRotateAllSurfacesUnreadableSpec(t *testing.T) {
+	ta := newTestApp(t)
+	// A key whose rotator companion holds a valid secret but corrupt JSON.
+	ta.store.m["keysec\x00k.good"] = "old"
+	ta.store.m["keysec\x00k.good.rotator"] = `{"kind":"generate","length":32}`
+	ta.store.m["keysec\x00k.bad"] = "old2"
+	ta.store.m["keysec\x00k.bad.rotator"] = `not-json`
+
+	rc := ta.run(t, "rotate", "--all", "--json")
+	if rc != 1 {
+		t.Fatalf("exit = %d, want 1 (corrupt spec must fail the sweep)", rc)
+	}
+	var b struct {
+		OK     bool `json:"ok"`
+		Failed []struct {
+			Key string `json:"key"`
+		} `json:"failed"`
+	}
+	decode(t, ta.stdout, &b)
+	if b.OK {
+		t.Error("sweep should not report ok with a corrupt spec")
+	}
+	foundBad := false
+	for _, f := range b.Failed {
+		if strings.Contains(f.Key, "k.bad") {
+			foundBad = true
+		}
+	}
+	if !foundBad {
+		t.Errorf("expected k.bad in failed list; got %+v", b.Failed)
 	}
 }
 
