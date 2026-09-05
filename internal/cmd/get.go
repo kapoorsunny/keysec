@@ -24,7 +24,7 @@ func (a *App) Get(ctx context.Context, args []string) error {
 	value, err := a.store.Get(ctx, k.Service, k.Account)
 	if err != nil {
 		if errors.Is(err, keychain.ErrNotFound) {
-			return a.notFoundError(k.Name)
+			return a.notFoundError(ctx, k.Name)
 		}
 		return a.storeError(err)
 	}

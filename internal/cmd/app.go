@@ -9,7 +9,6 @@ import (
 	"repo.flay.ai/root/keysec/internal/gitcred"
 	"repo.flay.ai/root/keysec/internal/key"
 	"repo.flay.ai/root/keysec/internal/keychain"
-	"repo.flay.ai/root/keysec/internal/ledger"
 	"repo.flay.ai/root/keysec/internal/machine"
 	"repo.flay.ai/root/keysec/internal/ui"
 )
@@ -17,22 +16,23 @@ import (
 // App bundles the dependencies shared by all commands.
 type App struct {
 	store   keychain.Store
-	ledger  *ledger.Ledger
+	enum    keychain.Enumerator
 	ui      *ui.Output
 	prompts *ui.Prompts
 	stdin   io.Reader
 	shim    *gitcred.Shim
 }
 
-// New wires the application together.
-func New(store keychain.Store, led *ledger.Ledger, out *ui.Output, prompts *ui.Prompts, stdin io.Reader) *App {
+// New wires the application together. store reads and writes secrets;
+// enum lists them (the Keychain is the only index).
+func New(store keychain.Store, enum keychain.Enumerator, out *ui.Output, prompts *ui.Prompts, stdin io.Reader) *App {
 	return &App{
 		store:   store,
-		ledger:  led,
+		enum:    enum,
 		ui:      out,
 		prompts: prompts,
 		stdin:   stdin,
-		shim:    gitcred.New(store, led),
+		shim:    gitcred.New(store),
 	}
 }
 
@@ -58,6 +58,14 @@ func (a *App) Execute(ctx context.Context, args []string) int {
 		run = a.Remove
 	case "list":
 		run = a.List
+	case "rotate":
+		run = a.Rotate
+	case "rotator":
+		run = a.Rotator
+	case "audit":
+		run = a.Audit
+	case "doctor":
+		run = a.Doctor
 	case "git-credential":
 		// Speaks git's own protocol; --json is irrelevant and already
 		// stripped, so it is deliberately left unaffected by mode.
@@ -66,7 +74,7 @@ func (a *App) Execute(ctx context.Context, args []string) int {
 		Help(a.ui)
 		return 0
 	default:
-		e := machine.Usage("unknown command '"+cmd+"'", "available: set, get, update, rm, list, git-credential, help")
+		e := machine.Usage("unknown command '"+cmd+"'", "available: set, get, update, rm, list, rotate, rotator, audit, doctor, git-credential, help")
 		a.renderError(e)
 		return e.ExitCode()
 	}
@@ -115,18 +123,4 @@ func parseKey(name string) (key.Key, error) {
 		return key.Key{}, machine.InvalidKey(name, "invalid key name")
 	}
 	return k, nil
-}
-
-// suggest looks for a close match among known key names, for
-// "did you mean" hints.
-func (a *App) suggest(needle string) string {
-	entries, err := a.ledger.Load()
-	if err != nil {
-		return ""
-	}
-	names := make([]string, len(entries))
-	for i, e := range entries {
-		names[i] = e.Name
-	}
-	return key.Suggest(needle, names)
 }

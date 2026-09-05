@@ -43,9 +43,6 @@ func (a *App) Set(ctx context.Context, args []string) error {
 	if err := a.store.Put(ctx, k.Service, k.Account, value); err != nil {
 		return a.storeError(err)
 	}
-	if err := a.ledger.Upsert(k.Name); err != nil {
-		return machine.IO(err.Error())
-	}
 	if a.ui.InJSON() {
 		return a.ui.JSON(machine.Ack{OK: true, Action: action, Key: k.Name})
 	}

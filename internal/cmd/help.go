@@ -8,54 +8,64 @@ import (
 func Help(o *ui.Output) {
 	o.Outln(`keysec — a pocket secret vault for your Mac
 
-Store, read and update secrets as key-value pairs, locked safely
-inside the macOS Keychain. Nothing is ever stored in plaintext on
-disk; the operating system encrypts it with your login password.
+Secrets live as key-value pairs inside the macOS Keychain; the
+operating system encrypts them with your login password. Nothing is
+ever stored in plaintext on disk. Rotators can renew a secret on
+demand or on a sweep.
 
 Commands
-  keysec set <key> [value]    save a secret (asks hidden if no value)
-  keysec get <key>            print a secret (clean for scripts)
-  keysec update <key> [value] change a secret that already exists
-  keysec rm <key> [--yes]     delete a secret (confirms first)
-  keysec list                 show every key you have, with dates
-  keysec git-credential <a>   for git, not for humans (see below)
+  keysec set <key> [value]      save a secret (asks hidden if no value)
+  keysec get <key>              print a secret (clean for scripts)
+  keysec update <key> [value]   change a secret that already exists
+  keysec rm <key> [--yes]       delete a secret and its rotator
+  keysec list                   enumeration straight from the Keychain
+  keysec rotate <key> [--plan]  rotate one secret via its rotator
+  keysec rotate --all [--due]   rotate every (due) key at once
+  keysec rotator get|set|rm     inspect or configure a key's rotator
+  keysec audit [--within <dur>] lifecycle report of every key
+  keysec doctor [--migrate]     check the vault, or import a v0.1 index
+  keysec git-credential <act>   for git, not for humans (see below)
 
-Keys are friendly names: a word, or a word with a dot.
-  mytoken        -> service "keysec", account "mytoken"
-  gitlab.repo_flay -> service "gitlab", account "repo_flay"
+Keys are friendly names; every key lives under one reserved service.
+  mytoken         -> service "keysec", account "mytoken"
+  git.repo.flay.ai -> service "keysec", account "git.repo.flay.ai"
 
-Examples
-  $ keysec set gitlab.repo_flay
-    value for 'gitlab.repo_flay' (hidden): ********
-  ✓ saved 'gitlab.repo_flay'
-    stored encrypted in your Mac's keychain
+Rotators
+  A rotator is a small, non-secret plan for producing new values. A key
+  with a rotator shows its kind in "keysec list" and can be rotated in
+  place, which keeps invalidation consistent:
 
-  $ keysec get gitlab.repo_flay
-  glpat-abc123...
+    keysec rotator set gitlab.token --kind vendor/gitlab \
+      --meta url=https://gitlab.com \
+      --auth-key git.repo.flay.ai.root.keysec
 
-  $ keysec list
-    KEY                SAVED        STATE
-    gitlab.repo_flay   2026-09-04   ✓ in keychain
-    1 key
+    keysec rotator set backup.token --kind generate --length 48
+
+  Kinds: generate | http | script | vendor/github | vendor/gitlab
+  The spec is stored next to the secret as <key>.rotator.
+
+  Rotation is then one command, or a sweep of everything due:
+    keysec rotate gitlab.token
+    keysec rotate --all --due
+    keysec audit          # who is healthy, due, or past due?
+
+For agents and scripts: --json
+  Add --json (anywhere) for machine-readable output, for example
+    keysec list --json     -> {"count":N,"keys":[{"name","saved","rotates"}]}
+    keysec rotate --json   -> {"ok":true,"action":"rotated","key",...}
+    keysec audit --json    -> {"count":N,"keys":[{"status":"EXPIRES_SOON",...}]}
+  Errors are structured JSON on stderr, e.g.
+    {"error":"not_found","key":"x","hint":"did you mean 'y'? ..."}
+  Exit codes: 0 ok, 1 runtime error (not_found, locked, io, rotation),
+  2 usage. Human defaults are unchanged; --json is opt-in and never
+  affects git-credential (which speaks git's own protocol).
 
 Let git keep its tokens in the Keychain — one line in your git config:
-
   [credential "https://repo.flay.ai"]
       helper = /usr/local/bin/keysec git-credential
 
-Then git pulls tokens from the Keychain, and no plaintext
-git-credentials file is ever written. Tokens git approves are stored;
-tokens git rejects are forgotten.
-
-For agents and scripts: --json
-  Add --json (anywhere) for machine-readable output:
-    keysec get --json <key>   -> {"name":...,"value":...}
-    keysec list --json        -> {"count":N,"keys":[{"name","saved","state"}]}
-    keysec set/update/rm --json -> {"ok":true,"action":...,"key":...}
-  Errors are structured JSON on stderr, e.g.
-    {"error":"not_found","key":"x","hint":"did you mean 'y'? try: keysec list",...}
-  Exit codes: 0 ok, 1 runtime error (not_found, locked, io), 2 usage.
-  Human defaults are unchanged; --json is opt-in and never affects
-  git-credential (which speaks git's own protocol).
+Then git pulls tokens from the Keychain and never writes a plaintext
+git-credentials file. Tokens git approves are stored; tokens git
+rejects are forgotten.
 `)
 }

@@ -4,22 +4,22 @@ import "testing"
 
 func TestParse(t *testing.T) {
 	cases := []struct {
-		in      string
-		svc     string
-		acct    string
-		wantErr bool
+		in       string
+		wantSvc  string
+		wantAcct string
+		wantErr  bool
 	}{
 		{"mytoken", "keysec", "mytoken", false},
-		{"gitlab.repo_flay", "gitlab", "repo_flay", false},
-		{"git.repo.flay.ai", "git", "repo.flay.ai", false},
-		{"a.b.c.d", "a", "b.c.d", false},
+		{"gitlab.repo_flay", "keysec", "gitlab.repo_flay", false},
+		{"git.repo.flay.ai", "keysec", "git.repo.flay.ai", false},
+		{"a.b.c.d", "keysec", "a.b.c.d", false},
 		{"A1-b_c", "keysec", "A1-b_c", false},
 		{"", "", "", true},
 		{".lead", "", "", true},
 		{"trail.", "", "", true},
 		{"bad/path", "", "", true},
 		{"spa ce", "", "", true},
-		{"a..b", "a", ".b", true}, // not caught by regex? it is: regex allows internal .. ; handled below
+		{"foo.rotator", "", "", true}, // reserved companion suffix
 	}
 	for _, c := range cases {
 		k, err := Parse(c.in)
@@ -30,9 +30,40 @@ func TestParse(t *testing.T) {
 		if c.wantErr {
 			continue
 		}
-		if k.Service != c.svc || k.Account != c.acct {
-			t.Errorf("Parse(%q) = %q/%q, want %q/%q", c.in, k.Service, k.Account, c.svc, c.acct)
+		if k.Service != c.wantSvc || k.Account != c.wantAcct {
+			t.Errorf("Parse(%q) = %q/%q, want %q/%q", c.in, k.Service, k.Account, c.wantSvc, c.wantAcct)
 		}
+	}
+}
+
+// ReservedSuffix means a name is a companion spec entry, never a key, no
+// matter how the name is split up.
+func TestParseRejectsReservedSuffix(t *testing.T) {
+	for _, in := range []string{"foo.rotator", "a.b.rotator", ".rotator"} {
+		k, err := Parse(in)
+		if err == nil {
+			t.Errorf("Parse(%q) succeeded, want reserved-suffix error", in)
+		}
+		if k.Service != "" || k.Account != "" {
+			t.Errorf("Parse(%q) returned %q/%q on error, want empty", in, k.Service, k.Account)
+		}
+	}
+	if _, err := Parse("rotator"); err != nil {
+		t.Errorf("Parse(rotator) failed: %v (bare 'rotator' is a valid name)", err)
+	}
+}
+
+// ParseServiceAccount maps enumerated Keychain coordinates back to a key,
+// and refuses anything outside the reserved service.
+func TestParseServiceAccount(t *testing.T) {
+	if k, err := ParseServiceAccount("keysec", "gitlab.repo_flay"); err != nil || k.Name != "gitlab.repo_flay" {
+		t.Errorf("ParseServiceAccount(keysec, gitlab.repo_flay) = %+v, %v", k, err)
+	}
+	if _, err := ParseServiceAccount("git", "repo.flay.ai"); err == nil {
+		t.Error("ParseServiceAccount(git, ...) succeeded, want error")
+	}
+	if _, err := ParseServiceAccount("keysec", "foo.rotator"); err == nil {
+		t.Error("ParseServiceAccount with .rotator account succeeded, want error")
 	}
 }
 
@@ -43,6 +74,34 @@ func TestParseEmptySegments(t *testing.T) {
 		if _, err := Parse(in); err == nil {
 			t.Errorf("Parse(%q) succeeded, want an empty-segment error", in)
 		}
+	}
+}
+
+// IsCompanion reports whether an enumerated account is a rotator
+// companion entry.
+func TestIsCompanion(t *testing.T) {
+	if !IsCompanion("foo.rotator") {
+		t.Error("IsCompanion(foo.rotator) = false")
+	}
+	if IsCompanion("rotator") {
+		t.Error("IsCompanion(rotator) = true, want false (must end with .rotator)")
+	}
+	if IsCompanion("foo") || IsCompanion("foo.rotatorx") {
+		t.Error("IsCompanion wrongly matched")
+	}
+}
+
+// CompanionName swaps a key name back and forth with its companion
+// account.
+func TestCompanionName(t *testing.T) {
+	if got := CompanionName("foo"); got != "foo.rotator" {
+		t.Errorf("CompanionName(foo) = %q", got)
+	}
+	if got, ok := ParentName("foo.rotator"); !ok || got != "foo" {
+		t.Errorf("ParentName(foo.rotator) = %q, %v", got, ok)
+	}
+	if _, ok := ParentName("foo"); ok {
+		t.Error("ParentName(foo) = ok, want false")
 	}
 }
 

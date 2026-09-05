@@ -45,14 +45,6 @@ func (f *fakeStore) Has(ctx context.Context, service, account string) (bool, err
 	return ok, nil
 }
 
-type fakeLedger struct {
-	upserted []string
-	removed  []string
-}
-
-func (f *fakeLedger) Upsert(name string) error { f.upserted = append(f.upserted, name); return nil }
-func (f *fakeLedger) Remove(name string) error { f.removed = append(f.removed, name); return nil }
-
 func credInput(protocol, host, path, user, pass string) string {
 	var b strings.Builder
 	if protocol != "" {
@@ -73,43 +65,39 @@ func credInput(protocol, host, path, user, pass string) string {
 	return b.String()
 }
 
-func newShim(store *fakeStore) (*Shim, *fakeLedger) {
-	fl := &fakeLedger{}
-	return New(store, fl), fl
+func newShim(store *fakeStore) *Shim {
+	return New(store)
 }
 
 func TestApproveStoresToken(t *testing.T) {
-	s, fl := newShim(&fakeStore{m: map[string]string{}})
+	s := newShim(&fakeStore{m: map[string]string{}})
 	err := s.Run(context.Background(), "approve",
 		strings.NewReader(credInput("https", "repo.flay.ai", "/flay/site.git", "oauth2", "tok-1")),
 		io.Discard, io.Discard)
 	if err != nil {
 		t.Fatalf("approve: %v", err)
 	}
-	if want := "tok-1"; s.store.(*fakeStore).m[keyOf("git", "repo.flay.ai.flay.site")] != want {
-		t.Errorf("stored = %v, want token under git/repo.flay.ai.flay.site", s.store.(*fakeStore).m)
-	}
-	if len(fl.upserted) != 1 || fl.upserted[0] != "git.repo.flay.ai.flay.site" {
-		t.Errorf("ledger upserted = %v", fl.upserted)
+	if want := "tok-1"; s.store.(*fakeStore).m[keyOf("keysec", "git.repo.flay.ai.flay.site")] != want {
+		t.Errorf("stored = %v, want token under keysec/git.repo.flay.ai.flay.site", s.store.(*fakeStore).m)
 	}
 }
 
 func TestStoreAliasMeansApprove(t *testing.T) {
-	s, _ := newShim(&fakeStore{m: map[string]string{}})
+	s := newShim(&fakeStore{m: map[string]string{}})
 	err := s.Run(context.Background(), "store",
 		strings.NewReader(credInput("https", "example.com", "", "u", "tok-2")),
 		io.Discard, io.Discard)
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}
-	if s.store.(*fakeStore).m[keyOf("git", "example.com")] != "tok-2" {
+	if s.store.(*fakeStore).m[keyOf("keysec", "git.example.com")] != "tok-2" {
 		t.Errorf("token not stored via 'store' alias")
 	}
 }
 
 func TestGetReturnsStoredToken(t *testing.T) {
-	fs := &fakeStore{m: map[string]string{keyOf("git", "example.com"): "tok-3"}}
-	s, _ := newShim(fs)
+	fs := &fakeStore{m: map[string]string{keyOf("keysec", "git.example.com"): "tok-3"}}
+	s := newShim(fs)
 	var out bytes.Buffer
 	err := s.Run(context.Background(), "get",
 		strings.NewReader(credInput("https", "example.com", "", "u", "")),
@@ -127,7 +115,7 @@ func TestGetReturnsStoredToken(t *testing.T) {
 }
 
 func TestGetSilentWhenNothingStored(t *testing.T) {
-	s, _ := newShim(&fakeStore{m: map[string]string{}})
+	s := newShim(&fakeStore{m: map[string]string{}})
 	var out bytes.Buffer
 	if err := s.Run(context.Background(), "get",
 		strings.NewReader(credInput("https", "example.com", "", "u", "")),
@@ -141,7 +129,7 @@ func TestGetSilentWhenNothingStored(t *testing.T) {
 
 func TestGetFailsLoudWhenLocked(t *testing.T) {
 	fs := &fakeStore{m: map[string]string{}, getErr: keychain.ErrLocked}
-	s, _ := newShim(fs)
+	s := newShim(fs)
 	var out bytes.Buffer
 	err := s.Run(context.Background(), "get",
 		strings.NewReader(credInput("https", "example.com", "", "u", "")),
@@ -151,26 +139,23 @@ func TestGetFailsLoudWhenLocked(t *testing.T) {
 	}
 }
 
-func TestRejectDeletesAndForgets(t *testing.T) {
-	fs := &fakeStore{m: map[string]string{keyOf("git", "example.com"): "stale"}}
-	s, fl := newShim(fs)
+func TestRejectDeletes(t *testing.T) {
+	fs := &fakeStore{m: map[string]string{keyOf("keysec", "git.example.com"): "stale"}}
+	s := newShim(fs)
 	err := s.Run(context.Background(), "reject",
 		strings.NewReader(credInput("https", "example.com", "", "u", "stale")),
 		io.Discard, io.Discard)
 	if err != nil {
 		t.Fatalf("reject: %v", err)
 	}
-	if _, ok := fs.m[keyOf("git", "example.com")]; ok {
+	if _, ok := fs.m[keyOf("keysec", "git.example.com")]; ok {
 		t.Error("token still in store after reject")
-	}
-	if len(fl.removed) != 1 || fl.removed[0] != "git.example.com" {
-		t.Errorf("ledger removed = %v", fl.removed)
 	}
 }
 
 func TestRejectUnknownItemIsFine(t *testing.T) {
 	fs := &fakeStore{m: map[string]string{}}
-	s, _ := newShim(fs)
+	s := newShim(fs)
 	if err := s.Run(context.Background(), "reject",
 		strings.NewReader(credInput("https", "example.com", "", "u", "x")),
 		io.Discard, io.Discard); err != nil {
@@ -179,7 +164,7 @@ func TestRejectUnknownItemIsFine(t *testing.T) {
 }
 
 func TestUnknownAction(t *testing.T) {
-	s, _ := newShim(&fakeStore{m: map[string]string{}})
+	s := newShim(&fakeStore{m: map[string]string{}})
 	if err := s.Run(context.Background(), "explode", strings.NewReader(""), io.Discard, io.Discard); err == nil {
 		t.Error("unknown action should error")
 	}

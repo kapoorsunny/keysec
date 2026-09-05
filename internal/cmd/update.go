@@ -24,7 +24,7 @@ func (a *App) Update(ctx context.Context, args []string) error {
 		return a.storeError(err)
 	}
 	if !exists {
-		return a.notFoundError(k.Name)
+		return a.notFoundError(ctx, k.Name)
 	}
 	var value string
 	if len(args) == 2 {
@@ -40,9 +40,6 @@ func (a *App) Update(ctx context.Context, args []string) error {
 	}
 	if err := a.store.Put(ctx, k.Service, k.Account, value); err != nil {
 		return a.storeError(err)
-	}
-	if err := a.ledger.Upsert(k.Name); err != nil {
-		return machine.IO(err.Error())
 	}
 	if a.ui.InJSON() {
 		return a.ui.JSON(machine.Ack{OK: true, Action: "updated", Key: k.Name})

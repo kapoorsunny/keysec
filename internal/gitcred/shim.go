@@ -10,24 +10,16 @@ import (
 	"repo.flay.ai/root/keysec/internal/keychain"
 )
 
-// LedgerLike is the slice of the key index the shim needs.
-// *ledger.Ledger satisfies it.
-type LedgerLike interface {
-	Upsert(name string) error
-	Remove(name string) error
-}
-
 // Shim implements the "git-credential" subcommand: it speaks git's
 // credential-helper protocol and keeps the resulting tokens in the
 // secret store.
 type Shim struct {
-	store  keychain.Store
-	ledger LedgerLike
+	store keychain.Store
 }
 
-// New returns a Shim over the given store and ledger.
-func New(store keychain.Store, ledger LedgerLike) *Shim {
-	return &Shim{store: store, ledger: ledger}
+// New returns a Shim over the given store.
+func New(store keychain.Store) *Shim {
+	return &Shim{store: store}
 }
 
 // Run handles one git-credential invocation. action is one of
@@ -84,10 +76,7 @@ func (s *Shim) approve(ctx context.Context, cred Credential, name string) error 
 	if err != nil {
 		return err
 	}
-	if err := s.store.Put(ctx, k.Service, k.Account, cred.Password); err != nil {
-		return err
-	}
-	return s.ledger.Upsert(name)
+	return s.store.Put(ctx, k.Service, k.Account, cred.Password)
 }
 
 // reject forgets a token git rejected (invalid/expired).
@@ -100,5 +89,5 @@ func (s *Shim) reject(ctx context.Context, name string) error {
 		!errors.Is(err, keychain.ErrNotFound) {
 		return err
 	}
-	return s.ledger.Remove(name)
+	return nil
 }

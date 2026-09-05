@@ -4,21 +4,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"repo.flay.ai/root/keysec/internal/keychain"
-	"repo.flay.ai/root/keysec/internal/ledger"
 	"repo.flay.ai/root/keysec/internal/ui"
 )
 
 type fakeStore struct {
-	m      map[string]string
-	getErr error
-	putErr error
-	delErr error
-	hasErr error
+	m       map[string]string
+	getErr  error
+	putErr  error
+	delErr  error
+	hasErr  error
+	listErr error
 }
 
 func (f *fakeStore) sk(service, account string) string { return service + "\x00" + account }
@@ -53,9 +52,20 @@ func (f *fakeStore) Has(ctx context.Context, s, a string) (bool, error) {
 	_, ok := f.m[f.sk(s, a)]
 	return ok, nil
 }
+func (f *fakeStore) List(ctx context.Context) ([]keychain.Entry, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	var out []keychain.Entry
+	for k := range f.m {
+		s, a, _ := strings.Cut(k, "\x00")
+		out = append(out, keychain.Entry{Service: s, Account: a})
+	}
+	return out, nil
+}
 
-// testApp wires an App with a fake store, a temp ledger, and captured
-// stdout/stderr so tests can assert on exact output.
+// testApp wires an App with a fake store (which also enumerates) and
+// captured stdout/stderr so tests can assert on exact output.
 type testApp struct {
 	app    *App
 	store  *fakeStore
@@ -66,10 +76,9 @@ type testApp struct {
 func newTestApp(t *testing.T) *testApp {
 	t.Helper()
 	store := &fakeStore{m: map[string]string{}}
-	led := ledger.NewAt(filepath.Join(t.TempDir(), "keys.json"))
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
-	app := New(store, led, ui.New(stdout, stderr), ui.NewPrompts(strings.NewReader(""), stderr), strings.NewReader(""))
+	app := New(store, store, ui.New(stdout, stderr), ui.NewPrompts(strings.NewReader(""), stderr), strings.NewReader(""))
 	return &testApp{app: app, store: store, stdout: stdout, stderr: stderr}
 }
 
@@ -87,8 +96,7 @@ func decode(t *testing.T, b *bytes.Buffer, v any) {
 
 func TestGetJSON(t *testing.T) {
 	ta := newTestApp(t)
-	ta.store.m["gitlab\x00repo_flay"] = "glpat-abc"
-	ta.app.ledger.Upsert("gitlab.repo_flay")
+	ta.store.m["keysec\x00gitlab.repo_flay"] = "glpat-abc"
 
 	rc := ta.run(t, "get", "--json", "gitlab.repo_flay")
 	if rc != 0 {
@@ -106,8 +114,7 @@ func TestGetJSON(t *testing.T) {
 
 func TestGetJSONHumanModeUnchanged(t *testing.T) {
 	ta := newTestApp(t)
-	ta.store.m["k\x00v"] = "raw-value"
-	ta.app.ledger.Upsert("k.v")
+	ta.store.m["keysec\x00k.v"] = "raw-value"
 
 	ta.run(t, "get", "k.v")
 	if got := ta.stdout.String(); got != "raw-value\n" {
@@ -117,7 +124,8 @@ func TestGetJSONHumanModeUnchanged(t *testing.T) {
 
 func TestGetJSONNotFound(t *testing.T) {
 	ta := newTestApp(t)
-	ta.app.ledger.Upsert("gitlab.repo_flay")
+	// Seed a close name so the suggestion machinery has something to find.
+	ta.store.m["keysec\x00gitlab.repo_flayx"] = "v"
 
 	rc := ta.run(t, "get", "--json", "gitlab.tken")
 	if rc != 1 {
@@ -158,19 +166,18 @@ func TestListJSONEmpty(t *testing.T) {
 
 func TestListJSONPresent(t *testing.T) {
 	ta := newTestApp(t)
-	ta.store.m["gitlab\x00repo_flay"] = "tok"
-	ta.app.ledger.Upsert("gitlab.repo_flay")
+	ta.store.m["keysec\x00gitlab.repo_flay"] = "tok"
 
 	ta.run(t, "list", "--json")
 	var l struct {
 		Count int `json:"count"`
 		Keys  []struct {
-			Name  string `json:"name"`
-			State string `json:"state"`
+			Name    string `json:"name"`
+			Rotates string `json:"rotates"`
 		} `json:"keys"`
 	}
 	decode(t, ta.stdout, &l)
-	if l.Count != 1 || l.Keys[0].Name != "gitlab.repo_flay" || l.Keys[0].State != "present" {
+	if l.Count != 1 || l.Keys[0].Name != "gitlab.repo_flay" || l.Keys[0].Rotates != "" {
 		t.Errorf("list --json = %+v", l)
 	}
 }
@@ -190,15 +197,14 @@ func TestSetJSON(t *testing.T) {
 	if !a.OK || a.Action != "saved" || a.Key != "gitlab.repo_flay" {
 		t.Errorf("set --json ack = %+v", a)
 	}
-	if ta.store.m["gitlab\x00repo_flay"] != "tok-1" {
+	if ta.store.m["keysec\x00gitlab.repo_flay"] != "tok-1" {
 		t.Error("value not stored")
 	}
 }
 
 func TestRmJSONYes(t *testing.T) {
 	ta := newTestApp(t)
-	ta.store.m["k\x00v"] = "x"
-	ta.app.ledger.Upsert("k.v")
+	ta.store.m["keysec\x00k.v"] = "x"
 
 	rc := ta.run(t, "rm", "--json", "--yes", "k.v")
 	if rc != 0 {
@@ -212,8 +218,75 @@ func TestRmJSONYes(t *testing.T) {
 	if !a.OK || a.Action != "removed" {
 		t.Errorf("rm --json ack = %+v", a)
 	}
-	if _, still := ta.store.m["k\x00v"]; still {
+	if _, still := ta.store.m["keysec\x00k.v"]; still {
 		t.Error("value still present after rm")
+	}
+}
+
+func TestRmCascadesToRotator(t *testing.T) {
+	ta := newTestApp(t)
+	ta.store.m["keysec\x00k.v"] = "x"
+	ta.store.m["keysec\x00k.v.rotator"] = `{"kind":"generate","length":32}`
+
+	rc := ta.run(t, "rm", "--json", "--yes", "k.v")
+	if rc != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%q", rc, ta.stderr.String())
+	}
+	if _, still := ta.store.m["keysec\x00k.v.rotator"]; still {
+		t.Error("rotator companion still present after rm")
+	}
+}
+
+func TestRotatorSetJSON(t *testing.T) {
+	ta := newTestApp(t)
+	ta.store.m["keysec\x00k.v"] = "x"
+
+	rc := ta.run(t, "rotator", "set", "--json", "k.v", "--kind", "generate", "--length", "48")
+	if rc != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%q", rc, ta.stderr.String())
+	}
+	var a struct {
+		OK     bool   `json:"ok"`
+		Action string `json:"action"`
+	}
+	decode(t, ta.stdout, &a)
+	if !a.OK || a.Action != "rotator.set" {
+		t.Errorf("rotator set --json ack = %+v", a)
+	}
+	var s struct {
+		Kind   string `json:"kind"`
+		Length int    `json:"length"`
+	}
+	decodeFromStr := json.Unmarshal([]byte(ta.store.m["keysec\x00k.v.rotator"]), &s)
+	if decodeFromStr != nil {
+		t.Fatalf("spec not stored as JSON: %v", decodeFromStr)
+	}
+	if s.Kind != "generate" || s.Length != 48 {
+		t.Errorf("stored spec = %+v", s)
+	}
+}
+
+func TestRotateJSON(t *testing.T) {
+	ta := newTestApp(t)
+	ta.store.m["keysec\x00k.v"] = "old"
+	ta.store.m["keysec\x00k.v.rotator"] = `{"kind":"generate","length":32}`
+
+	rc := ta.run(t, "rotate", "--json", "k.v")
+	if rc != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%q", rc, ta.stderr.String())
+	}
+	var a struct {
+		OK     bool   `json:"ok"`
+		Action string `json:"action"`
+		Key    string `json:"key"`
+	}
+	decode(t, ta.stdout, &a)
+	if !a.OK || a.Action != "rotated" || a.Key != "k.v" {
+		t.Errorf("rotate --json ack = %+v", a)
+	}
+	got := ta.store.m["keysec\x00k.v"]
+	if got == "old" || len(got) != 32 {
+		t.Errorf("new value = %q, want a fresh 32-char secret", got)
 	}
 }
 
@@ -241,8 +314,8 @@ func TestGitCredentialUnaffectedByJSON(t *testing.T) {
 	if rc != 0 {
 		t.Fatalf("git-credential approve exit = %d, want 0", rc)
 	}
-	// The stored key is derived from host; value round-trips.
-	if got, _ := ta.store.Get(context.Background(), "git", "example.com"); got != "p q" {
+	// The stored key is derived from host; value round-trips under keysec.
+	if got, _ := ta.store.Get(context.Background(), "keysec", "git.example.com"); got != "p q" {
 		t.Errorf("git approve stored %q, want 'p q'", got)
 	}
 }

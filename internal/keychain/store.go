@@ -5,6 +5,7 @@ package keychain
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 // ErrNotFound is returned when no secret exists at the given location.
@@ -17,6 +18,12 @@ var ErrLocked = errors.New("keychain is locked")
 // ErrConflict is returned when a secret already exists where a new one
 // is being added without replacement.
 var ErrConflict = errors.New("secret already exists")
+
+// ErrDumpFormat is the fail-loud sentinel for enumeration: the
+// dump-keychain output was produced (item blocks exist) but none of the
+// blocks were structurally parseable. A changed output format must not
+// silently hide every key, so we refuse to report an empty list instead.
+var ErrDumpFormat = errors.New("unrecognized 'security dump-keychain' output")
 
 // Store is a key-value store for secrets.
 type Store interface {
@@ -34,4 +41,22 @@ type Store interface {
 
 	// Has reports whether a secret exists at (service, account).
 	Has(ctx context.Context, service, account string) (bool, error)
+}
+
+// Entry is one item enumerated from the Keychain. It carries metadata
+// only — never a secret value — which is exactly what dump-keychain
+// exposes.
+type Entry struct {
+	Service  string
+	Account  string
+	Created  time.Time
+	Modified time.Time
+}
+
+// Enumerator lists Keychain items so keysec can operate with the
+// Keychain as its only index. Implementations must fail loudly
+// (ErrDumpFormat) rather than silently report an empty list when the
+// underlying output changes shape.
+type Enumerator interface {
+	List(ctx context.Context) ([]Entry, error)
 }

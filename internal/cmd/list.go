@@ -2,84 +2,52 @@ package cmd
 
 import (
 	"context"
-	"time"
 
-	"repo.flay.ai/root/keysec/internal/key"
-	"repo.flay.ai/root/keysec/internal/ledger"
 	"repo.flay.ai/root/keysec/internal/machine"
+	"repo.flay.ai/root/keysec/internal/migrate"
 )
 
-// List implements "keysec list". In human mode it prints a tidy table
-// of every known key with its save date and whether it is present in
-// the keychain; with --json it emits {"count":...,"keys":[...]}.
-// Either way it contains names and dates only, never values.
+// List implements "keysec list". It reads the Keychain itself — the
+// only index — so what it shows is what is really stored. With --json
+// it prints {"count":N,"keys":[...]}.
 func (a *App) List(ctx context.Context, args []string) error {
 	if len(args) != 0 {
-		return machine.Usage("usage: keysec list", "")
+		return machine.Usage("usage: keysec list", "--json for machine output")
 	}
-	entries, err := a.ledger.Load()
+	keys, err := a.listedKeys(ctx)
 	if err != nil {
-		return machine.IO(err.Error())
+		return err
 	}
 	if a.ui.InJSON() {
-		return a.listJSON(ctx, entries)
-	}
-	if len(entries) == 0 {
-		a.ui.Note("no keys yet — save one: keysec set <name>")
-		return nil
-	}
-	header := []string{"KEY", "SAVED", "STATE"}
-	rows := make([][]string, 0, len(entries))
-	var missing []string
-	for _, e := range entries {
-		k, err := key.Parse(e.Name)
-		if err != nil {
-			continue
+		out := &machine.List{Count: len(keys)}
+		for _, k := range keys {
+			out.Keys = append(out.Keys, machine.KeyInfo{Name: k.name, Saved: day(k.saved), Rotates: k.rotates})
 		}
-		present, err := a.store.Has(ctx, k.Service, k.Account)
-		if err != nil {
-			return a.storeError(err)
-		}
-		state := "✓ in keychain"
-		if !present {
-			state = "✗ missing from keychain"
-			missing = append(missing, e.Name)
-		}
-		rows = append(rows, []string{e.Name, day(e.Updated), state})
+		return a.ui.JSON(out)
 	}
-	a.ui.Table(header, rows)
-	a.ui.Outln("%d key%s", len(rows), plural(len(rows)))
-	for _, name := range missing {
-		a.ui.Hint("'%s' is in the index but gone from the keychain — remove it: keysec rm %s", name, name)
+	if len(keys) == 0 {
+		a.ui.Note("no keys yet")
+	} else {
+		rows := make([][]string, len(keys))
+		for i, k := range keys {
+			mark := "—"
+			if k.rotates != "" {
+				mark = k.rotates
+			}
+			rows[i] = []string{k.name, day(k.saved), mark}
+		}
+		a.ui.Table([]string{"KEY", "SAVED", "ROTATES"}, rows)
+		a.ui.Hint("%d key%s", len(keys), plural(len(keys)))
+	}
+	if len(keys) == 0 && legacyPresent() {
+		a.ui.Hint("found a v0.1 index — migrate it: keysec doctor --migrate")
 	}
 	return nil
 }
 
-// listJSON renders the machine form: one object per known key, with a
-// state ("present"/"missing") an agent can branch on.
-func (a *App) listJSON(ctx context.Context, entries []ledger.Entry) error {
-	keys := make([]machine.KeyInfo, 0, len(entries))
-	for _, e := range entries {
-		k, err := key.Parse(e.Name)
-		if err != nil {
-			continue
-		}
-		state := "present"
-		if present, err := a.store.Has(ctx, k.Service, k.Account); err != nil {
-			return a.storeError(err)
-		} else if !present {
-			state = "missing"
-		}
-		keys = append(keys, machine.KeyInfo{Name: e.Name, Saved: day(e.Updated), State: state})
-	}
-	return a.ui.JSON(machine.List{Count: len(keys), Keys: keys})
-}
-
-func day(t time.Time) string { return t.Format("2006-01-02") }
-
-func plural(n int) string {
-	if n == 1 {
-		return ""
-	}
-	return "s"
+// legacyPresent reports a legacy v0.1 keys.json without making list
+// fail when it cannot be read (the migration command surfaces that).
+func legacyPresent() bool {
+	ok, _ := migrate.Exists()
+	return ok
 }

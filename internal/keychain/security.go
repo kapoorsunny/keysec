@@ -8,6 +8,8 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+
+	"repo.flay.ai/root/keysec/internal/key"
 )
 
 // Runner executes external commands. It is an interface so tests can
@@ -108,6 +110,29 @@ func (s *Security) Has(ctx context.Context, service, account string) (bool, erro
 		return false, nil
 	}
 	return false, s.classify(stderr, err)
+}
+
+// List enumerates every keysec item in the default keychains. It speaks
+// the same security CLI as the rest of the Store, parsing
+// dump-keychain output (values are withheld by macOS, so nothing secret
+// leaves the Keychain). It returns ErrDumpFormat if the dump existed
+// but could not be parsed, rather than silently reporting an empty list.
+func (s *Security) List(ctx context.Context) ([]Entry, error) {
+	stdout, stderr, err := s.run.Run(ctx, devNullReader{}, s.binary, "dump-keychain")
+	if err != nil {
+		return nil, s.classify(stderr, err)
+	}
+	all, err := ParseDump(stdout)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]Entry, 0, len(all))
+	for _, e := range all {
+		if e.Service == key.ReservedService {
+			entries = append(entries, e)
+		}
+	}
+	return entries, nil
 }
 
 // classify maps security CLI failures onto Store sentinels so callers

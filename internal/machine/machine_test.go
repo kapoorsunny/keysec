@@ -63,7 +63,7 @@ func TestDataShapes(t *testing.T) {
 		t.Errorf("Value JSON = %v", v)
 	}
 	var l map[string]any
-	_ = json.Unmarshal([]byte(marshal(t, List{Count: 1, Keys: []KeyInfo{{Name: "a.b", Saved: "2026-01-01", State: "present"}}})), &l)
+	_ = json.Unmarshal([]byte(marshal(t, List{Count: 1, Keys: []KeyInfo{{Name: "a.b", Saved: "2026-01-01", Rotates: "generate"}}})), &l)
 	if l["count"].(float64) != 1 {
 		t.Errorf("List JSON = %v", l)
 	}
