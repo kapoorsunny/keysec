@@ -14,6 +14,7 @@ ever stored in plaintext on disk. Rotators can renew a secret on
 demand or on a sweep.
 
 Commands
+  keysec run --env NAME=key ...  inject secrets into one command only
   keysec set <key> [value]      save a secret (asks hidden if no value)
   keysec get <key>              print a secret (clean for scripts)
   keysec update <key> [value]   change a secret that already exists
@@ -29,6 +30,18 @@ Commands
 Keys are friendly names; every key lives under one reserved service.
   mytoken         -> service "keysec", account "mytoken"
   git.repo.flay.ai -> service "keysec", account "git.repo.flay.ai"
+
+Run (inject secrets into one command only)
+  Run a command with selected secrets as environment variables, so they
+  never touch disk, shell history or .env files. The child inherits your
+  terminal's stdin/out; keysec exits with the child's own status.
+
+    keysec run --env TOKEN=mytoken [--] ./deploy.sh
+    keysec run --env AWS_ACCESS_KEY_ID=aws.key \
+               --env AWS_SECRET_ACCESS_KEY=aws.secret -- aws s3 sync . s3://b
+
+  Use a literal "--" to pass flags that belong to the child command:
+    keysec run --env TOKEN=mytoken -- some-tool --json --verbose
 
 Rotators
   A rotator is a small, non-secret plan for producing new values. A key

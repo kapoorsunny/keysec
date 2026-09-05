@@ -39,6 +39,13 @@ func New(store keychain.Store, enum keychain.Enumerator, out *ui.Output, prompts
 // Execute dispatches to a subcommand and renders its outcome.
 // It returns the process exit code.
 func (a *App) Execute(ctx context.Context, args []string) int {
+	if len(args) > 0 && args[0] == "run" {
+		// run is special: it executes a child process and must not have its
+		// arguments reinterpreted. In particular --json after the command
+		// belongs to the child, so splitJSON (which strips every occurrence)
+		// must not see these args.
+		return a.Run(ctx, args[1:])
+	}
 	rest, jsonMode := splitJSON(args)
 	a.ui.SetJSON(jsonMode)
 	if len(rest) == 0 {
@@ -74,7 +81,7 @@ func (a *App) Execute(ctx context.Context, args []string) int {
 		Help(a.ui)
 		return 0
 	default:
-		e := machine.Usage("unknown command '"+cmd+"'", "available: set, get, update, rm, list, rotate, rotator, audit, doctor, git-credential, help")
+		e := machine.Usage("unknown command '"+cmd+"'", "available: run, set, get, update, rm, list, rotate, rotator, audit, doctor, git-credential, help")
 		a.renderError(e)
 		return e.ExitCode()
 	}

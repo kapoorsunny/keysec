@@ -80,6 +80,11 @@ func (o *Output) Outln(format string, args ...any) {
 	fmt.Fprintf(o.stdout, format+"\n", args...)
 }
 
+// Stdout returns the writer data goes to. The run command uses it so a
+// child process inherits exactly what keysec would write, keeping output
+// on stdout and testable via injected buffers.
+func (o *Output) Stdout() io.Writer { return o.stdout }
+
 // Stderr returns the writer messages go to, so callers (like the
 // git-credential shim) can emit protocol errors there.
 func (o *Output) Stderr() io.Writer { return o.stderr }
