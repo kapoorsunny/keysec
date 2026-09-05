@@ -1,0 +1,132 @@
+// Package cmd implements keysec's subcommands. Each command is one
+// file; the App bundles their shared dependencies.
+package cmd
+
+import (
+	"context"
+	"io"
+
+	"repo.flay.ai/root/keysec/internal/gitcred"
+	"repo.flay.ai/root/keysec/internal/key"
+	"repo.flay.ai/root/keysec/internal/keychain"
+	"repo.flay.ai/root/keysec/internal/ledger"
+	"repo.flay.ai/root/keysec/internal/machine"
+	"repo.flay.ai/root/keysec/internal/ui"
+)
+
+// App bundles the dependencies shared by all commands.
+type App struct {
+	store   keychain.Store
+	ledger  *ledger.Ledger
+	ui      *ui.Output
+	prompts *ui.Prompts
+	stdin   io.Reader
+	shim    *gitcred.Shim
+}
+
+// New wires the application together.
+func New(store keychain.Store, led *ledger.Ledger, out *ui.Output, prompts *ui.Prompts, stdin io.Reader) *App {
+	return &App{
+		store:   store,
+		ledger:  led,
+		ui:      out,
+		prompts: prompts,
+		stdin:   stdin,
+		shim:    gitcred.New(store, led),
+	}
+}
+
+// Execute dispatches to a subcommand and renders its outcome.
+// It returns the process exit code.
+func (a *App) Execute(ctx context.Context, args []string) int {
+	rest, jsonMode := splitJSON(args)
+	a.ui.SetJSON(jsonMode)
+	if len(rest) == 0 {
+		Help(a.ui)
+		return 0
+	}
+	cmd, cmdArgs := rest[0], rest[1:]
+	var run func(context.Context, []string) error
+	switch cmd {
+	case "set":
+		run = a.Set
+	case "get":
+		run = a.Get
+	case "update":
+		run = a.Update
+	case "rm":
+		run = a.Remove
+	case "list":
+		run = a.List
+	case "git-credential":
+		// Speaks git's own protocol; --json is irrelevant and already
+		// stripped, so it is deliberately left unaffected by mode.
+		run = a.GitCredential
+	case "help", "--help", "-h":
+		Help(a.ui)
+		return 0
+	default:
+		e := machine.Usage("unknown command '"+cmd+"'", "available: set, get, update, rm, list, git-credential, help")
+		a.renderError(e)
+		return e.ExitCode()
+	}
+	if err := run(ctx, cmdArgs); err != nil {
+		e := machine.FromError(err)
+		a.renderError(e)
+		return e.ExitCode()
+	}
+	return 0
+}
+
+// renderError prints an error in the active mode: structured JSON on
+// stderr in machine mode, friendly text for humans otherwise.
+func (a *App) renderError(e *machine.Error) {
+	if a.ui.InJSON() {
+		a.ui.JSONErr(e)
+		return
+	}
+	a.ui.Fail("%s", e.Message)
+	if e.Hint != "" {
+		a.ui.Hint("%s", e.Hint)
+	}
+}
+
+// splitJSON strips --json from anywhere in args and reports whether it
+// was present, so machine mode works whether the flag leads or trails.
+func splitJSON(args []string) ([]string, bool) {
+	out := make([]string, 0, len(args))
+	jsonMode := false
+	for _, arg := range args {
+		if arg == "--json" {
+			jsonMode = true
+			continue
+		}
+		out = append(out, arg)
+	}
+	return out, jsonMode
+}
+
+// parseKey parses and validates a key name, translating failures into a
+// typed invalid_key error carrying the offending name. It returns the
+// error interface so callers can chain it with other error returns.
+func parseKey(name string) (key.Key, error) {
+	k, err := key.Parse(name)
+	if err != nil {
+		return key.Key{}, machine.InvalidKey(name, "invalid key name")
+	}
+	return k, nil
+}
+
+// suggest looks for a close match among known key names, for
+// "did you mean" hints.
+func (a *App) suggest(needle string) string {
+	entries, err := a.ledger.Load()
+	if err != nil {
+		return ""
+	}
+	names := make([]string, len(entries))
+	for i, e := range entries {
+		names[i] = e.Name
+	}
+	return key.Suggest(needle, names)
+}
