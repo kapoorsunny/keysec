@@ -21,7 +21,7 @@ That's it. The only external program keysec shells out to is the built-in
 
 ```bash
 brew tap kapoorsunny/tap
-brew trust kapoorsunny/tap   # one-time approval for this tap
+brew trust kapoorsunny/tap   # one-time approval; non-interactive, safe in scripts/CI
 brew install keysec
 ```
 
