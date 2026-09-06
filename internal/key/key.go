@@ -19,6 +19,10 @@ const maxNameLen = 255
 // ending in it is a companion (<key>.rotator), never a user key.
 const ReservedSuffix = ".rotator"
 
+// ReservedRunLog is the account of the append-only handoff log kept by
+// "keysec run". It is a keysec-internal overlay entry, never a user key.
+const ReservedRunLog = ".runlog"
+
 // ErrInvalid is returned for names that are not valid key names.
 var ErrInvalid = errors.New("invalid key name")
 
@@ -71,6 +75,12 @@ func ParseServiceAccount(service, account string) (Key, error) {
 // companions always end in ".rotator".
 func IsCompanion(account string) bool {
 	return strings.HasSuffix(account, ReservedSuffix) && len(account) > len(ReservedSuffix)
+}
+
+// IsReserved reports whether account is a keysec-internal overlay entry
+// (a rotator companion or the run log) rather than a user key.
+func IsReserved(account string) bool {
+	return IsCompanion(account) || account == ReservedRunLog
 }
 
 // CompanionName is the account of the companion entry holding the rotator

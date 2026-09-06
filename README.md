@@ -85,7 +85,8 @@ in place.
 | Command | What it does (plain English) |
 |---|---|
 | `keysec set <key>` | Save a secret. If you don't type a value, it **asks you, hidden** (like a password field) |
-| `keysec run --env NAME=key [--] cmd` | Inject secrets into one command as environment variables only — never disk, history, or `.env` files |
+| `keysec runs [--yes]` | The audit log of every secret handoff (`run`) — tamper-evident. `--yes` clears it deliberately, after review |
+| `keysec run --env NAME=key [--mask] [--] cmd` | Inject exactly the secrets you name into one command as environment variables only — never disk, history, or `.env` files. With `--mask`, secret values a script prints come out as `***` |
 | `keysec get <key>` | Print the secret — for you, or for a script |
 | `keysec update <key>` | Change a secret, but only if it already exists |
 | `keysec rm <key>` | Delete a secret (and its rotator) — **asks you to confirm first** |
@@ -128,6 +129,40 @@ macOS never dumps values), so there is no `keys.json` and no way for the index
 and the storage to disagree. A key that has a **rotator** also keeps a tiny,
 non-secret spec at `keysec / <key>.rotator` describing how to produce the next
 value — the secret's value itself lives only inside the Keychain.
+
+## Every secret handoff is audited (`keysec runs`)
+
+Every time `keysec run --env ...` injects a secret, it appends one record
+to an append-only handoff log: which key, which command, when. Each record
+locks in the one before it (a hash chain), so editing, reordering, or
+truncating the log is detected the next time it is read:
+
+```
+$ keysec runs
+  SEQ  WHEN                        SECRETS    COMMAND
+  1    2026-09-06T12:00:00Z        mytoken    bash -c deploy
+```
+
+The log lives in the Keychain itself (`keysec / .runlog`), so `keysec list`
+stays clean and only your real keys show up. Three rules keep the handoff
+honest:
+
+1. **`run` names every key it hands over.** Wildcards are refused, so a
+   command can never receive "some of everything".
+2. **`run` refuses to start on a broken log.** If the chain fails to
+   verify — or the log can't be written (e.g. locked keychain) — the child
+   never starts. No handoff without a record of it.
+3. **Clearing is deliberate.** `keysec runs --yes` wipes the log after
+   you've reviewed the evidence (scripts: `keysec runs --yes --json`).
+   It's the *only* way past a failed check.
+
+`--mask` is a transcript safety net for the same handoff: the child's
+stdout and stderr are scrubbed live, so secret *values* a script echoes
+come out as `***`:
+
+```
+$ keysec run --mask --env TOKEN=mytoken -- ./report.sh
+```
 
 ## Rotators
 
@@ -179,6 +214,8 @@ keysec list --json    -> {"count":N,"keys":[{"name","saved","rotates"}]}
 keysec get --json     -> {"name":"...","value":"..."}
 keysec rotate --json  -> {"ok":true,"action":"rotated","key":...}
 keysec audit --json   -> {"count":N,"keys":[{"status":"EXPIRES_SOON",...}]}
+keysec runs --json    -> {"count":N,"entries":[{"seq","at","command","secret_keys","sha"}],"tampered":...}
+keysec runs --yes --json -> {"ok":true,"action":"runs.reset","cleared":N}
 ```
 
 Errors are structured JSON on stderr: `{"error":"<kind>","hint":...}`.
@@ -227,6 +264,7 @@ speaks git's own protocol and ignores `--json`.
 5. `git-credential` shim (git protocol → Keychain), no index anymore
 6. `rotator set|get|rm` and `rotate`, `rotate --all [--due]`, `audit`, `doctor`
 7. one Go binary (standard library plus `golang.org/x/term` for hidden prompts), installs to `/usr/local/bin/keysec`
+8. audited handoffs: `run` requires explicit keys, records every handoff in a tamper-evident log (`runs`, `--yes`), `--mask` scrubs child output
 
 **Success looks like:** `keysec set`/`get`/`list` feel like a friendly app;
 your `gitlab.example.com` token lives in the Keychain; git authenticates through it;

@@ -54,6 +54,8 @@ fresh so the installed binary matches the checkout.
 | `keysec rotator rm <key> [--yes]` | Remove a rotation plan (the secret is untouched) |
 | `keysec audit [--within <dur>]` | Lifecycle report; `--within` (default 14d) marks `EXPIRES_SOON` |
 | `keysec doctor [--migrate] [--yes]` | Health report, or migrate a v0.1 `keys.json` index |
+| `keysec run --env NAME=key [--mask] [--] cmd` | Inject exactly the secrets you name into one child process as env vars; never disk/history/`.env`. Wildcards refused. `--mask` redacts secret values from the child's output |
+| `keysec runs [--yes]` | Show the tamper-evident handoff log of every secret-bearing `run`; `--yes` clears it deliberately |
 | `keysec git-credential <get\|approve\|reject>` | For git, not for humans — see Git integration |
 
 **Key names:** letters, digits, dots, dashes; 1–255 chars; no leading/trailing
@@ -119,6 +121,34 @@ script), documented in `docs/script-rotation.md`.
 '<json>'`. Switching kind clears the previous kind's fields but keeps
 `--grace`, `--timeout`, `--meta`.
 
+## run: audited, explicit handoffs
+
+`keysec run --env TOKEN=mytoken [--mask] [--] <cmd>` hands one child
+process exactly the keys you name — **wildcards are refused**, so a
+command can't silently receive "all the secrets". Every secret-bearing
+run is recorded in a tamper-evident, append-only log:
+
+```bash
+keysec run --mask --env TOKEN=mytoken -- ./deploy.sh
+keysec runs                  # the log: SEQ / WHEN / SECRETS / COMMAND
+keysec runs --json           # {"count":N,"entries":[{"seq","at","command","secret_keys","sha"}],"tampered":true/false}
+```
+
+The log is a hash chain stored in the Keychain (`keysec / .runlog`,
+hidden from `list`), so each record locks in the one before it. Three
+rules keep the handoff honest:
+
+1. Explicit keys only — `run` refuses wildcards.
+2. A broken log blocks `run`: if the chain no longer verifies, or the log
+   can't be written (locked keychain), the child never starts.
+3. The only way to clear the log is `keysec runs --yes` (human mode or
+   `--json`); tampered errors always hint at it. Show the log before
+   clearing — never wipe it silently, it is the audit evidence.
+
+`--mask` is a transcript safety net: the child's stdout/stderr is
+scrubbed live so the injected secret *values* print as `***`. It masks
+the values you injected, not every token a script could mint.
+
 ## Patterns for agents and scripts
 
 Prefer `--json`; it makes success and failure machine-readable.
@@ -130,6 +160,8 @@ keysec list --json                      # {"count":N,"keys":[{"name","saved","ro
 keysec rm --json mytoken --yes          # {"ok":true,"action":"removed","key":"mytoken"}
 keysec rotate --json mytoken            # {"ok":true,"action":"rotated","key":...,"expires_at":...}
 keysec audit --json                     # {"count":N,"keys":[{"status":"EXPIRES_SOON",...}]}
+keysec runs --json                      # handoff log; "tampered":true marks a log that failed verification
+keysec runs --yes --json                # {"ok":true,"action":"runs.reset","cleared":N} — deliberate log clear
 ```
 
 - **Exit codes:** `0` ok (or rm declined), `1` runtime error
@@ -192,6 +224,11 @@ index.
    process list. Prefer single-line tokens for any value that matters.
 6. Rotation runs the provider before touching the keychain. Never suggest
    rotating a key that lacks a rotator — point at `keysec rotator set` instead.
+7. Treat the run handoff log as audit evidence: show it, never clear it
+   silently. Only `keysec runs --yes` resets it, and only after review.
+8. If an agent command needs a secret at its boundary, prefer
+   `keysec run --env NAME=key --mask -- <cmd>` over putting the value in
+   a plain argument the shell may log.
 
 ## Troubleshooting
 
@@ -202,4 +239,5 @@ index.
 | `your keychain is locked` | `security unlock` or open Keychain Access, then retry |
 | `list` is empty but keys exist | Probably a v0.1 install — `keysec doctor --migrate` |
 | `{"error":"rotation",...}` | Provider failed; nothing was written, the old value is still live |
+| `run log integrity check failed` (from `run` or `runs`) | The handoff log was modified/reordered/truncated. Review `keysec runs`, then clear it deliberately with `keysec runs --yes` |
 | keysec not found | See Install above |
