@@ -23,7 +23,7 @@ Fastest on a machine with Homebrew:
 
 ```bash
 brew tap kapoorsunny/tap
-brew trust kapoorsunny/tap      # one-time approval for this tap
+brew trust kapoorsunny/tap      # one-time approval; non-interactive, idempotent (safe in scripts/CI)
 brew install keysec             # installed prebuilt macOS binary (arm64/amd64)
 ```
 
@@ -158,6 +158,10 @@ git config --global credential.'https://gitlab.example.com'.helper '/usr/local/b
 Then git's normal flow runs over the vault: keysec stores tokens git
 approves, forgets tokens git rejects, and answers `get` silently (empty
 output = "no credential here", so git falls back to its usual prompts).
+A `get` that finds a token returns it plus the placeholder username
+`oauth2` — git refuses to treat a credential as complete without a
+username, and hosted git (GitHub/GitLab) accepts any value beside a
+token-as-password, so non-interactive commands work in scripts and jobs.
 The derived key is deterministic: `git.<host>` plus a dot-joined segment per
 path piece (`.git` dropped) — e.g. `git.gitlab.example.com.root.keysec`. Do not call
 `git-credential` by hand; it speaks git's percent-encoded wire protocol.
