@@ -28,13 +28,21 @@ brew install keysec
 A prebuilt macOS binary (Apple Silicon or Intel) is installed, and releases are
 pushed to the tap automatically when a new version is tagged.
 
-**Agents using keysec should also grab the skill** so they know how to drive it:
-install it into their skill directory (Claude Code uses `~/.claude/skills/`), e.g.
+**Agents using keysec should also grab the skill** so they know how to drive it.
+Install it into your agent's skill/instructions directory (the convention varies
+by agent — e.g. Codex, Gemini, or another tool each has its own). The raw file
+is always available, so point your skill loader at it:
+
+```
+https://raw.githubusercontent.com/kapoorsunny/keysec/main/skills/keysec/SKILL.md
+```
+
+A typical install into a local skill directory looks like:
 
 ```bash
-mkdir -p ~/.claude/skills/keysec
+mkdir -p <your-agent-skill-dir>/keysec
 curl -fsSL https://raw.githubusercontent.com/kapoorsunny/keysec/main/skills/keysec/SKILL.md \
-  -o ~/.claude/skills/keysec/SKILL.md
+  -o <your-agent-skill-dir>/keysec/SKILL.md
 ```
 
 The skill is the agent-facing manual — every command, `--json` machine mode,
