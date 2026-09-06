@@ -17,7 +17,23 @@ That's it. The only external program keysec shells out to is the built-in
 
 ## Install
 
-### Option A — build from source (always matches this checkout)
+### Option A — Homebrew (recommended)
+
+```bash
+brew tap kapoorsunny/tap
+brew install keysec
+```
+
+A prebuilt macOS binary (Apple Silicon or Intel) is installed, and releases are
+pushed to the tap automatically when a new version is tagged.
+
+### Option B — `go install` from the module
+
+```bash
+go install github.com/kapoorsunny/keysec@latest
+```
+
+### Option C — build from source (always matches this checkout)
 
 ```bash
 git clone https://github.com/kapoorsunny/keysec
@@ -27,16 +43,13 @@ sudo install -m 755 keysec /usr/local/bin/keysec   # or any directory on $PATH
 keysec help                                        # verify: usage + examples, exit 0
 ```
 
-### Option B — `go install` from the module
+Agents and automation can rely on any of the three: `brew install keysec`
+(Option A) is the fastest one-line install for a machine that has Homebrew.
 
-```bash
-go install github.com/kapoorsunny/keysec@latest
-```
-
-The prebuilt `keysec` file at the repo root is git-ignored; build fresh so the
-installed binary matches the checkout. The first time a *new* program reads a
-secret, macOS asks you to "always allow" it in an approval dialog; afterwards
-it is silent.
+Whichever option you pick, the prebuilt `keysec` file at the repo root is
+git-ignored; build fresh so the installed binary matches the checkout. The
+first time a *new* program reads a secret, macOS asks you to "always allow" it
+in an approval dialog; afterwards it is silent.
 
 ---
 
