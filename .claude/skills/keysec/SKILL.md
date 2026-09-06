@@ -71,16 +71,39 @@ keysec rotator set gitlab.token --kind vendor/gitlab \
 keysec rotator set gh.token --kind vendor/github \
   --meta 'permissions=administration:write' --meta title=keysec-rotate
 
+# Cloudflare API token via a separate "API Tokens Edit" credential key
+keysec rotator set cf.token --kind vendor/cloudflare \
+  --meta 'policies=[{"effect":"allow","resources":{"com.cloudflare.api.account.<acct>":"*"},"permission_groups":[{"id":"<perm-group-id>"}]}]' \
+  --auth-key cf.admin
+
 # sweep: rotate everything whose recorded expiry has passed
 keysec rotate --all --due
 ```
 
-Kinds: `generate`, `http`, `script`, `vendor/github`, `vendor/gitlab`.
+Kinds: `generate`, `http`, `script`, `vendor/github`, `vendor/gitlab`,
+`vendor/cloudflare`.
 The credential sent to a vendor is `--auth-key`'s stored value, or the key's
 own current value if no `--auth-key` is set. Rotation is atomic: the provider
 runs first and nothing is written until it succeeds, so a failure leaves the
 old secret live. Vendor rotation creates a new token and revokes the previous
 one it created (tracked via `last_created_id` in the spec state).
+
+`vendor/cloudflare` specifics: the credential must itself be a Cloudflare API
+token with "API Tokens Write" permission (dashboard template "Create
+additional tokens" — User > API Tokens > Edit). The new token is pinned via
+`--meta policies='<json array>'` (Cloudflare policy objects with `effect`,
+`resources`, `permission_groups`) and `--meta expiration_days` (default 90,
+max 365). The token value is shown only once at creation, so keysec must
+rotate into it to see it.
+
+`script` contract: keysec runs `<script> rotate` (file) or
+`<interpreter> -s rotate` (inline body) with `KEYSEC_KEY`, `KEYSEC_VALUE` and
+`KEYSEC_META_<NAME>` in the environment. Stdout is either a JSON object
+`{"value","expires_at","old_valid_until","meta"}` or the whole trimmed stdout
+as the new value. Whatever service the script talks to is the script's own
+concern — keysec only reads stdout, so there is no server-side schema. Live
+test: `test/run-script-rotation.sh` (dummy Python rotation server + adapter
+script), documented in `docs/script-rotation.md`.
 
 `rotator set` flags: `--kind --length --charset --url --method --auth
 --auth-key --value --new-expires --grace --script --body --body-file

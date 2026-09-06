@@ -13,7 +13,7 @@ idea that is deliberately **not** built is the cgo enumerator backend.
    to the reserved `keysec` service.
 3. Rotate secrets through pluggable providers behind one `Rotator`
    interface: `generate`, `http`, `script`, `vendor/github`,
-   `vendor/gitlab`.
+   `vendor/gitlab`, `vendor/cloudflare`.
 4. Manage rotator configuration as in-keychain companion entries
    (`<key>.rotator`), never on disk.
 5. Add lifecycle surface: `audit`, `rotate --all --due`, `doctor`.
@@ -150,7 +150,7 @@ type Result struct {
 
 ```json
 {
-  "kind":             "generate | http | script | vendor/github | vendor/gitlab",
+  "kind":             "generate | http | script | vendor/github | vendor/gitlab | vendor/cloudflare",
   "length":           32,              // generate
   "charset":          "…",             // generate (default: letters+digits)
   "url":              "https://…",     // http, templates {key} {value} {meta.K}
@@ -237,7 +237,24 @@ Create a new GitLab personal access token:
   `last_created_id`): `DELETE /api/v4/personal_access_tokens/{id}`. First
   rotation is create-only.
 
-Both vendor adapters are implemented against the documented API shapes and
+#### `vendor/cloudflare`
+Create a new Cloudflare API token via the Cloudflare API, using
+`Credential` as auth (the credential itself must carry "API Tokens Write" —
+dashboard template "Create additional tokens", User > API Tokens > Edit):
+- `POST https://api.cloudflare.com/client/v4/user/tokens`
+  header `Authorization: Bearer <credential>`, body built from spec `meta`:
+  `name`, `policies` (required JSON array of Cloudflare policy objects —
+  each carries `effect`, `resources`, `permission_groups`), `expiration_days`
+  (default 90, max 365 → `expires_on`, RFC 3339).
+- Cloudflare wraps replies in `{success, result}`: the one-time token is
+  `result.value` (shown only on creation, so keysec must store it), the id
+  `result.id`, expiry `result.expires_on`.
+- Revoke the previous token **only if we created it** (state
+  `last_created_id`): `DELETE /user/tokens/{id}`. First rotation is
+  create-only. Cloudflare API tokens have no self-rotate endpoint (Access
+  service tokens do, but that is a different resource).
+
+The vendor adapters are implemented against the documented API shapes and
 tested with `httptest` mocks; live integration is opt-in and out of test
 scope.
 
@@ -300,7 +317,7 @@ the rest. Changing `kind` resets kind-specific fields but preserves common
 `grace`/`timeout`/`meta`. Flags:
 
 ```
---kind generate|http|script|vendor/github|vendor/gitlab  (required on first set)
+--kind generate|http|script|vendor/github|vendor/gitlab|vendor/cloudflare  (required on first set)
 --url --method --auth --auth-key --value --new-expires --grace
 --script --body --body-file --interpreter --timeout
 --length --charset
@@ -394,7 +411,8 @@ account `git.repo.flay.ai.root.keysec`.
 - Rotators: `generate` determinism, `http` against `httptest` (auth styles,
   templates, value/new_expires paths, non-2xx, timeout), `script` with a
   fake interpreter (`sh -c '…'` recording env) covering JSON and lenient
-  stdout, vendor/github and vendor/gitlab against `httptest` mocks
+  stdout, vendor/github, vendor/gitlab and vendor/cloudflare against
+  `httptest` mocks
   (create, revoke-own-previous, first-rotation create-only).
 - Spec merge: field semantics, kind-switch reset preserving grace/timeout/
   meta.

@@ -1,1 +1,3 @@
 /keysec
+__pycache__/
+*.pyc

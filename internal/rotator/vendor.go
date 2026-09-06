@@ -14,15 +14,16 @@ import (
 )
 
 const (
-	githubDefaultBase = "https://api.github.com"
-	gitlabAPIVersion  = "/api/v4"
+	githubDefaultBase     = "https://api.github.com"
+	gitlabAPIVersion      = "/api/v4"
+	cloudflareDefaultBase = "https://api.cloudflare.com/client/v4"
 )
 
 // vendorRotator rotates personal access tokens for a provider that has
-// a token-rotation API: GitHub fine-grained PATs and GitLab PATs. Both
-// share one shape: create a new token with the credential, persist its
-// id in spec state, and — on later rotations — revoke the token we
-// created previously.
+// a token-rotation API: GitHub fine-grained PATs, GitLab PATs and
+// Cloudflare API tokens. They share one shape: create a new token with
+// the credential, persist its id in spec state, and — on later
+// rotations — revoke the token we created previously.
 //
 // GitLab additionally offers self-rotate (since 16.10): the endpoint
 // /personal_access_tokens/self/rotate revokes the authenticating token
@@ -59,6 +60,8 @@ func (v *vendorRotator) Rotate(ctx context.Context, in Input) (Result, error) {
 		return v.githubRotate(ctx, in)
 	case KindVendorGitlab:
 		return v.gitlabRotate(ctx, in)
+	case KindVendorCloudflare:
+		return v.cloudflareRotate(ctx, in)
 	default:
 		return Result{}, errf("unsupported vendor kind %q", v.kind)
 	}
@@ -78,7 +81,7 @@ func (v *vendorRotator) githubRotate(ctx context.Context, in Input) (Result, err
 		return Result{}, err
 	}
 	createURL := strings.TrimRight(base, "/") + "/user/personal_access_tokens"
-	return v.createAndMaybeRevoke(ctx, createURL, headerK, headerV, body, func(id string) error {
+	return v.createAndMaybeRevoke(ctx, createURL, headerK, headerV, body, decodeVendorToken, func(id string) error {
 		return v.githubRevoke(ctx, base, headerK, headerV, id)
 	})
 }
@@ -114,16 +117,16 @@ func (v *vendorRotator) gitlabRotate(ctx context.Context, in Input) (Result, err
 		return Result{}, err
 	}
 	createURL := strings.TrimRight(base, "/") + gitlabAPIVersion + "/personal_access_tokens"
-	return v.createAndMaybeRevoke(ctx, createURL, headerK, headerV, body, func(id string) error {
+	return v.createAndMaybeRevoke(ctx, createURL, headerK, headerV, body, decodeVendorToken, func(id string) error {
 		return v.gitlabRevoke(ctx, base, headerK, headerV, id)
 	})
 }
 
 // createAndMaybeRevoke performs the create POST and, when keysec created
 // a previous token (tracked by id in spec state), retires it.
-func (v *vendorRotator) createAndMaybeRevoke(ctx context.Context, createURL, headerK, headerV string, body []byte, revoke func(string) error) (Result, error) {
+func (v *vendorRotator) createAndMaybeRevoke(ctx context.Context, createURL, headerK, headerV string, body []byte, decode vendorDecoder, revoke func(string) error) (Result, error) {
 	resp := newVendorResponse(createURL, headerK, headerV, body)
-	id, token, expiresAt, err := doCreate(ctx, resp)
+	id, token, expiresAt, err := doCreate(ctx, resp, decode)
 	if err != nil {
 		return Result{}, err
 	}
@@ -160,9 +163,13 @@ func newVendorResponse(url, headerKey, headerVal string, body []byte) vendorResp
 	return vendorResponse{method: http.MethodPost, url: url, headerKey: headerKey, headerVal: headerVal, body: body}
 }
 
-// doCreate performs the POST and decodes the token fields from the
-// provider's JSON reply.
-func doCreate(ctx context.Context, r vendorResponse) (id, token string, expiresAt *time.Time, err error) {
+// vendorDecoder extracts the created token's id, value and expiry from a
+// provider's JSON create reply. Each vendor maps onto its own shape.
+type vendorDecoder func(data []byte) (id, token string, expiresAt *time.Time, err error)
+
+// doCreate performs the POST and hands the provider's reply to the
+// vendor's decoder.
+func doCreate(ctx context.Context, r vendorResponse, decode vendorDecoder) (id, token string, expiresAt *time.Time, err error) {
 	// The http.Client below already enforces defaultTimeout; no separate
 	// context deadline is needed.
 	req, err := http.NewRequestWithContext(ctx, r.method, r.url, bytes.NewReader(r.body))
@@ -183,15 +190,22 @@ func doCreate(ctx context.Context, r vendorResponse) (id, token string, expiresA
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return "", "", nil, &apiError{url: r.url, status: resp.Status, code: resp.StatusCode, body: snippet(string(data), 200)}
 	}
+	return decode(data)
+}
+
+// decodeVendorToken handles the shared GitHub/GitLab create reply, where
+// id/token/expires_at sit at the top level of the document.
+func decodeVendorToken(data []byte) (string, string, *time.Time, error) {
 	var doc map[string]any
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return "", "", nil, errf("create response is not JSON: %v", err)
 	}
-	id = asString(doc["id"], true)
-	token = asString(doc["token"], false)
+	id := asString(doc["id"], true)
+	token := asString(doc["token"], false)
 	if token == "" {
 		return "", "", nil, errf("create response has no token")
 	}
+	var expiresAt *time.Time
 	if ev, ok := doc["expires_at"]; ok {
 		if t, e := expiryFromValue(ev); e == nil {
 			u := t.UTC()
@@ -199,6 +213,45 @@ func doCreate(ctx context.Context, r vendorResponse) (id, token string, expiresA
 		}
 	}
 	return id, token, expiresAt, nil
+}
+
+// decodeCloudflare handles the Cloudflare API token create reply, where
+// the token lives under result.value (shown only once, so keysec must
+// store it) and the id under result.id.
+func decodeCloudflare(data []byte) (string, string, *time.Time, error) {
+	var doc struct {
+		Success bool `json:"success"`
+		Errors  []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+		Result struct {
+			ID        string `json:"id"`
+			Value     string `json:"value"`
+			ExpiresOn string `json:"expires_on"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return "", "", nil, errf("create response is not JSON: %v", err)
+	}
+	if !doc.Success {
+		msg := "cloudflare create failed"
+		if len(doc.Errors) > 0 && doc.Errors[0].Message != "" {
+			msg = doc.Errors[0].Message
+		}
+		return "", "", nil, errf("%s", snippet(msg, 200))
+	}
+	token := doc.Result.Value
+	if token == "" {
+		return "", "", nil, errf("cloudflare create response has no token value")
+	}
+	var expiresAt *time.Time
+	if doc.Result.ExpiresOn != "" {
+		if t, e := ParseExpiry(doc.Result.ExpiresOn); e == nil && t != nil {
+			u := t.UTC()
+			expiresAt = &u
+		}
+	}
+	return doc.Result.ID, token, expiresAt, nil
 }
 
 // githubCreateBody builds the fine-grained PAT create request.
@@ -247,7 +300,7 @@ func (v *vendorRotator) gitlabSelfRotate(ctx context.Context, in Input, base, he
 	}
 	url := strings.TrimRight(base, "/") + gitlabAPIVersion + "/personal_access_tokens/self/rotate"
 	resp := newVendorResponse(url, headerKey, headerVal, body)
-	id, token, expiresAt, err := doCreate(ctx, resp)
+	id, token, expiresAt, err := doCreate(ctx, resp, decodeVendorToken)
 	if err != nil {
 		return Result{}, err
 	}
@@ -294,6 +347,62 @@ func (v *vendorRotator) gitlabCreateBody(in Input) ([]byte, error) {
 // gitlabRevoke deletes a PAT by id.
 func (v *vendorRotator) gitlabRevoke(ctx context.Context, base, headerKey, headerVal, id string) error {
 	url := strings.TrimRight(base, "/") + gitlabAPIVersion + "/personal_access_tokens/" + id
+	return vendorDelete(ctx, url, headerKey, headerVal)
+}
+
+// cloudflareRotate creates an API token via the Cloudflare API and, when
+// keysec created a previous one (tracked by id), revokes it. Cloudflare
+// has no self-rotate for API tokens (their Access service tokens have a
+// rotate endpoint, but that is a different resource), so this is always
+// create + revoke-old.
+func (v *vendorRotator) cloudflareRotate(ctx context.Context, in Input) (Result, error) {
+	if in.Credential == "" {
+		return Result{}, errf("cloudflare rotation needs a credential")
+	}
+	base := metaOr(v.spec, "url", cloudflareDefaultBase)
+	headerK := "Authorization"
+	headerV := "Bearer " + in.Credential
+	body, err := v.cloudflareCreateBody(in)
+	if err != nil {
+		return Result{}, err
+	}
+	createURL := strings.TrimRight(base, "/") + "/user/tokens"
+	return v.createAndMaybeRevoke(ctx, createURL, headerK, headerV, body, decodeCloudflare, func(id string) error {
+		return v.cloudflareRevoke(ctx, base, headerK, headerV, id)
+	})
+}
+
+// cloudflareCreateBody builds the Cloudflare API token create request.
+// Cloudflare tokens combine permissions into policies, so the spec must
+// carry meta policies as a JSON array of Cloudflare policy objects.
+func (v *vendorRotator) cloudflareCreateBody(in Input) ([]byte, error) {
+	now := time.Now().UTC()
+	days := atoi(metaOr(v.spec, "expiration_days", "90"))
+	if days < 1 {
+		days = 90
+	}
+	if days > 365 {
+		days = 365
+	}
+	policies := strings.TrimSpace(metaOr(v.spec, "policies", ""))
+	if policies == "" {
+		return nil, errf("cloudflare rotation needs meta policies (JSON array of Cloudflare token policies)")
+	}
+	var parsed []any
+	if err := json.Unmarshal([]byte(policies), &parsed); err != nil {
+		return nil, errf("meta policies must be a JSON array: %v", err)
+	}
+	params := map[string]any{
+		"name":       metaOr(v.spec, "name", metaOr(v.spec, "title", keysecDefaultName(in.Key))),
+		"policies":   parsed,
+		"expires_on": now.AddDate(0, 0, days).Format(time.RFC3339),
+	}
+	return json.Marshal(params)
+}
+
+// cloudflareRevoke deletes an API token by id.
+func (v *vendorRotator) cloudflareRevoke(ctx context.Context, base, headerKey, headerVal, id string) error {
+	url := strings.TrimRight(base, "/") + "/user/tokens/" + id
 	return vendorDelete(ctx, url, headerKey, headerVal)
 }
 

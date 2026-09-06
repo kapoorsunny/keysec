@@ -97,9 +97,10 @@ keysec audit                        # who is healthy / due / past due?
 ```
 
 Kinds: `generate` (fresh random secret), `http` (ask an API), `script` (run
-your own program), `vendor/github` and `vendor/gitlab` (create a real PAT and
-revoke the previous one). The credential used to authenticate to a vendor is
-`--auth-key`'s value, or the key's own current value.
+your own program), `vendor/github`, `vendor/gitlab` and `vendor/cloudflare`
+(create a real token via the provider API and revoke the previous one). The
+credential used to authenticate to a vendor is `--auth-key`'s value, or the
+key's own current value.
 
 Rotation is **atomic**: the provider runs first, and nothing is written until
 it succeeds — a failed rotation leaves the old secret live and the keychain

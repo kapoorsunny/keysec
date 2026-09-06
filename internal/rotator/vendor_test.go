@@ -276,6 +276,164 @@ func TestVendorGitlabNeedsBaseURL(t *testing.T) {
 	}
 }
 
+// cloudflareServer models the Cloudflare API token API: create returns
+// the one-time token value under result.value, delete succeeds.
+func cloudflareServer(log *vendorLog) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body := make([]byte, 0)
+		if r.Body != nil {
+			b := make([]byte, 1<<16)
+			n, _ := r.Body.Read(b)
+			body = b[:n]
+		}
+		log.record(r.Method, r.URL.Path, r.Header.Get("Authorization"), body)
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/user/tokens"):
+			var req struct {
+				Name     string `json:"name"`
+				Policies []any  `json:"policies"`
+				Expires  string `json:"expires_on"`
+			}
+			json.Unmarshal(body, &req)
+			if len(req.Policies) == 0 {
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprint(w, `{"success":false,"errors":[{"message":"policies is required"}]}`)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"success": true,
+				"result":  map[string]any{"id": "cf-token-1", "value": "cf_new", "expires_on": "2030-01-01T00:00:00Z"},
+			})
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(200)
+			fmt.Fprint(w, `{"success":true}`)
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+}
+
+func TestVendorCloudflareCreate(t *testing.T) {
+	var log vendorLog
+	srv := cloudflareServer(&log)
+	defer srv.Close()
+
+	r, err := New(&Spec{Kind: KindVendorCloudflare, Meta: map[string]string{
+		"url": srv.URL, "policies": `[{"effect":"allow","resources":{"com.cloudflare.api.account.123":"*"},"permission_groups":[{"id":"8acbe51b14b34acbb9e10e0bd0388e04"}]}]`,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := r.Rotate(context.Background(), Input{Credential: "old-token"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Value != "cf_new" {
+		t.Errorf("value = %q", res.Value)
+	}
+	if res.ID != "cf-token-1" {
+		t.Errorf("id = %q", res.ID)
+	}
+	if res.ExpiresAt == nil || res.ExpiresAt.Format(time.RFC3339) != "2030-01-01T00:00:00Z" {
+		t.Errorf("expires = %v", res.ExpiresAt)
+	}
+	c := log.last()
+	if c.method != "POST" || c.path != "/user/tokens" {
+		t.Errorf("call = %s %s", c.method, c.path)
+	}
+	if c.auth != "Bearer old-token" {
+		t.Errorf("auth = %q", c.auth)
+	}
+	if p, _ := json.Marshal(c.body["policies"]); len(p) == 0 {
+		t.Errorf("policies missing from body: %v", c.body)
+	}
+	if _, ok := c.body["expires_on"]; !ok {
+		t.Errorf("expires_on missing from body: %v", c.body)
+	}
+}
+
+func TestVendorCloudflareRevokesOwnPrevious(t *testing.T) {
+	var log vendorLog
+	srv := cloudflareServer(&log)
+	defer srv.Close()
+
+	r, _ := New(&Spec{Kind: KindVendorCloudflare,
+		Meta:          map[string]string{"url": srv.URL, "policies": `[{"effect":"allow"}]`},
+		LastCreatedID: "cf-old"})
+	res, err := r.Rotate(context.Background(), Input{Credential: "token"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := log.count(); got != 1 {
+		t.Fatalf("calls after rotate = %d, want 1 (create only; revoke deferred)", got)
+	}
+	if res.Revoke == nil {
+		t.Fatal("expected a deferred Revoke hook for the previous token")
+	}
+	if err := res.Revoke(); err != nil {
+		t.Fatalf("revoke failed: %v", err)
+	}
+	if got := log.count(); got != 2 {
+		t.Fatalf("calls after revoke = %d, want 2 (create + revoke)", got)
+	}
+	del := log.calls[1]
+	if del.method != "DELETE" || del.path != "/user/tokens/cf-old" {
+		t.Errorf("revoke call = %s %s", del.method, del.path)
+	}
+}
+
+func TestVendorCloudflareFirstRotationNoRevoke(t *testing.T) {
+	var log vendorLog
+	srv := cloudflareServer(&log)
+	defer srv.Close()
+	r, _ := New(&Spec{Kind: KindVendorCloudflare, Meta: map[string]string{"url": srv.URL, "policies": `[{"effect":"allow"}]`}})
+	if _, err := r.Rotate(context.Background(), Input{Credential: "p"}); err != nil {
+		t.Fatal(err)
+	}
+	if log.count() != 1 {
+		t.Errorf("calls = %d, want 1 (create only, no previous to revoke)", log.count())
+	}
+}
+
+func TestVendorCloudflareNeedsPolicies(t *testing.T) {
+	var log vendorLog
+	srv := cloudflareServer(&log)
+	defer srv.Close()
+	r, _ := New(&Spec{Kind: KindVendorCloudflare, Meta: map[string]string{"url": srv.URL}})
+	if _, err := r.Rotate(context.Background(), Input{Credential: "p"}); err == nil {
+		t.Fatal("cloudflare rotation without policies should error")
+	}
+}
+
+func TestVendorCloudflareBadPolicies(t *testing.T) {
+	var log vendorLog
+	srv := cloudflareServer(&log)
+	defer srv.Close()
+	r, _ := New(&Spec{Kind: KindVendorCloudflare, Meta: map[string]string{"url": srv.URL, "policies": "not json"}})
+	if _, err := r.Rotate(context.Background(), Input{Credential: "p"}); err == nil {
+		t.Fatal("malformed policies should error before any request")
+	}
+	if log.count() != 0 {
+		t.Errorf("calls = %d, want 0 (body built before the request)", log.count())
+	}
+}
+
+func TestVendorCloudflareErrorSurfacesMessage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(403)
+		fmt.Fprint(w, `{"success":false,"errors":[{"message":"API Token Editing disabled"}]}`)
+	}))
+	defer srv.Close()
+	r, _ := New(&Spec{Kind: KindVendorCloudflare, Meta: map[string]string{"url": srv.URL, "policies": `[{"effect":"allow"}]`}})
+	_, err := r.Rotate(context.Background(), Input{Credential: "p"})
+	if err == nil {
+		t.Fatal("403 should error")
+	}
+	if !strings.Contains(err.Error(), "403") || !strings.Contains(err.Error(), "API Token Editing disabled") {
+		t.Errorf("err = %v, want status + provider message", err)
+	}
+}
+
 func TestVendorCreateNon2xx(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(403)

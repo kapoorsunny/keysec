@@ -21,15 +21,16 @@ import (
 
 // Kind identifiers.
 const (
-	KindGenerate     = "generate"
-	KindHTTP         = "http"
-	KindScript       = "script"
-	KindVendorGithub = "vendor/github"
-	KindVendorGitlab = "vendor/gitlab"
+	KindGenerate         = "generate"
+	KindHTTP             = "http"
+	KindScript           = "script"
+	KindVendorGithub     = "vendor/github"
+	KindVendorGitlab     = "vendor/gitlab"
+	KindVendorCloudflare = "vendor/cloudflare"
 )
 
 // Kinds lists every rotator kind keysec knows, for help and validation.
-var Kinds = []string{KindGenerate, KindHTTP, KindScript, KindVendorGithub, KindVendorGitlab}
+var Kinds = []string{KindGenerate, KindHTTP, KindScript, KindVendorGithub, KindVendorGitlab, KindVendorCloudflare}
 
 // Input carries everything a provider needs to rotate one secret.
 type Input struct {
@@ -140,6 +141,8 @@ func New(spec *Spec) (Rotator, error) {
 		return &vendorRotator{spec: spec, kind: KindVendorGithub}, nil
 	case KindVendorGitlab:
 		return &vendorRotator{spec: spec, kind: KindVendorGitlab}, nil
+	case KindVendorCloudflare:
+		return &vendorRotator{spec: spec, kind: KindVendorCloudflare}, nil
 	default:
 		return nil, fmt.Errorf("rotator: unknown kind %q (known: %s)", spec.Kind, strings.Join(Kinds, ", "))
 	}
@@ -175,7 +178,7 @@ func (s *Spec) Validate() error {
 		if s.Script == "" && s.Body == "" {
 			return fmt.Errorf("script rotator needs a script or a body")
 		}
-	case KindVendorGithub, KindVendorGitlab:
+	case KindVendorGithub, KindVendorGitlab, KindVendorCloudflare:
 		if u := metaOr(s, "url", ""); u == "" {
 			// default base URLs apply; nothing to require.
 		}

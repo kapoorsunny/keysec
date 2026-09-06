@@ -54,7 +54,7 @@ Rotators
 
     keysec rotator set backup.token --kind generate --length 48
 
-  Kinds: generate | http | script | vendor/github | vendor/gitlab
+  Kinds: generate | http | script | vendor/github | vendor/gitlab | vendor/cloudflare
   The spec is stored next to the secret as <key>.rotator.
 
   Rotation is then one command, or a sweep of everything due:
