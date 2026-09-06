@@ -39,6 +39,11 @@ type ReadWriter interface {
 	Put(ctx context.Context, service, account, value string) error
 }
 
+// Deleter is the store access Reset needs. keychain.Store satisfies it.
+type Deleter interface {
+	Delete(ctx context.Context, service, account string) error
+}
+
 // Entry is one recorded handoff. Prev is the hash of the previous
 // entry ("" for the head of a chain); Sha is this entry's own hash over
 // its fields and Prev, so verification needs no external state.
@@ -120,6 +125,18 @@ func Load(ctx context.Context, rw ReadWriter) (entries []Entry, tampered bool, e
 		return nil, false, fmt.Errorf("run log is corrupted: %w", err)
 	}
 	return log.Entries, !verify(log.Entries), nil
+}
+
+// Reset clears the run log entirely by removing its reserved Keychain
+// entry. It is the deliberate escape hatch after a chain fails to verify
+// (or simply to start fresh); callers must gate it behind explicit
+// confirmation. Deleting an absent log is a no-op.
+func Reset(ctx context.Context, dw Deleter) error {
+	err := dw.Delete(ctx, key.ReservedService, key.ReservedRunLog)
+	if err != nil && !errors.Is(err, keychain.ErrNotFound) {
+		return err
+	}
+	return nil
 }
 
 // verify walks the chain and reports whether every entry is consistent:

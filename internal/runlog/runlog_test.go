@@ -10,7 +10,10 @@ import (
 )
 
 // stub is a minimal ReadWriter backed by a map.
-type stub struct{ m map[string]string }
+type stub struct {
+	m      map[string]string
+	delErr error
+}
 
 func (s *stub) Get(_ context.Context, service, account string) (string, error) {
 	v, ok := s.m[service+"\x00"+account]
@@ -21,6 +24,13 @@ func (s *stub) Get(_ context.Context, service, account string) (string, error) {
 }
 func (s *stub) Put(_ context.Context, service, account, value string) error {
 	s.m[service+"\x00"+account] = value
+	return nil
+}
+func (s *stub) Delete(_ context.Context, service, account string) error {
+	if s.delErr != nil {
+		return s.delErr
+	}
+	delete(s.m, service+"\x00"+account)
 	return nil
 }
 
@@ -150,5 +160,33 @@ func TestPruneRebasesChain(t *testing.T) {
 	}
 	if entries[0].Seq != 1 {
 		t.Errorf("re-based head Seq = %d, want 1 (renumbered head)", entries[0].Seq)
+	}
+}
+
+func TestResetClearsLog(t *testing.T) {
+	s := &stub{m: map[string]string{}}
+	Append(context.Background(), s, "cmd one", []string{"a"})
+	Append(context.Background(), s, "cmd two", []string{"b"})
+
+	if err := Reset(context.Background(), s); err != nil {
+		t.Fatalf("Reset: %v", err)
+	}
+	entries, tampered, err := Load(context.Background(), s)
+	if err != nil || tampered || len(entries) != 0 {
+		t.Errorf("after reset: entries=%d tampered=%v err=%v", len(entries), tampered, err)
+	}
+}
+
+func TestResetIdempotentWhenAbsent(t *testing.T) {
+	s := &stub{m: map[string]string{}}
+	if err := Reset(context.Background(), s); err != nil {
+		t.Fatalf("Reset on an absent log should be a no-op, got %v", err)
+	}
+}
+
+func TestResetPropagatesStoreFailure(t *testing.T) {
+	s := &stub{m: map[string]string{}, delErr: keychain.ErrLocked}
+	if err := Reset(context.Background(), s); !errors.Is(err, keychain.ErrLocked) {
+		t.Fatalf("Reset = %v, want the store's failure", err)
 	}
 }

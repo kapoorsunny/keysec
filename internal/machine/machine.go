@@ -194,3 +194,10 @@ type Runs struct {
 	Entries  []RunEntry `json:"entries"`
 	Tampered bool       `json:"tampered,omitempty"`
 }
+
+// RunsReset is the machine form of "keysec runs --yes".
+type RunsReset struct {
+	OK      bool   `json:"ok"`
+	Action  string `json:"action"`  // "runs.reset"
+	Cleared int    `json:"cleared"` // entries removed (best-effort on a corrupt log)
+}

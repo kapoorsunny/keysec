@@ -24,7 +24,7 @@ Commands
   keysec rotate --all [--due]   rotate every (due) key at once
   keysec rotator get|set|rm     inspect or configure a key's rotator
   keysec audit [--within <dur>] lifecycle report of every key
-  keysec runs                   tamper-evident log of every secret handoff
+  keysec runs [--yes]           tamper-evident log of every secret handoff
   keysec doctor [--migrate]     check the vault, or import a v0.1 index
   keysec git-credential <act>   for git, not for humans (see below)
 
@@ -47,8 +47,9 @@ Run (inject secrets into one command only)
   run hands over only the keys you name: wildcards are refused, and
   every secret-bearing run is recorded in an append-only, tamper-evident
   log ("keysec runs"). If the log has been modified or cannot be written,
-  run refuses to start. With --mask, secret values a script prints are
-  replaced by "***" in the child's output:
+  run refuses to start. After reviewing the evidence, clear a corrupted
+  log deliberately with "keysec runs --yes". With --mask, secret values a
+  script prints are replaced by "***" in the child's output:
     keysec run --mask --env TOKEN=mytoken -- ./report.sh
 
 Rotators

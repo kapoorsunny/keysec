@@ -235,7 +235,11 @@ func (a *App) logRun(ctx context.Context, envs []envFlag, rest []string) error {
 // anything else is a store failure.
 func (a *App) runLogErr(err error) *machine.Error {
 	if errors.Is(err, runlog.ErrTampered) {
-		return machine.IO("run log integrity check failed — the handoff log was modified or corrupted; refusing to run")
+		return &machine.Error{
+			Kind:    machine.KindIO,
+			Message: "run log integrity check failed — the handoff log was modified or corrupted; refusing to run",
+			Hint:    "review the log (keysec runs), then clear it with: keysec runs --yes",
+		}
 	}
 	return a.storeError(err)
 }
