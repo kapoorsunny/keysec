@@ -1,3 +1,4 @@
 /keysec
 __pycache__/
 *.pyc
+/docs/spec.md

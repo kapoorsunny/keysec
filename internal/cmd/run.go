@@ -8,8 +8,8 @@ import (
 	"regexp"
 	"strings"
 
-	"repo.flay.ai/root/keysec/internal/keychain"
-	"repo.flay.ai/root/keysec/internal/machine"
+	"github.com/kapoorsunny/keysec/internal/keychain"
+	"github.com/kapoorsunny/keysec/internal/machine"
 )
 
 // envFlag is one --env mapping: the child's variable NAME and the keysec

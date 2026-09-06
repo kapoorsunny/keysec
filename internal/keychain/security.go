@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"repo.flay.ai/root/keysec/internal/key"
+	"github.com/kapoorsunny/keysec/internal/key"
 )
 
 // Runner executes external commands. It is an interface so tests can

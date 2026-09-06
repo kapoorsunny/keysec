@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"repo.flay.ai/root/keysec/internal/keychain"
+	"github.com/kapoorsunny/keysec/internal/keychain"
 )
 
 // fakeStore is a minimal keychain store for migration tests, keyed by
@@ -82,12 +82,12 @@ func withHome(t *testing.T) {
 func TestRunMovesDottedSkipsDotlessAndRotator(t *testing.T) {
 	withHome(t)
 	store := newFakeStore(map[string]string{
-		kv("git", "repo.flay.ai.root.keysec"): "tokenvalue",
-		kv("keysec", "plain"):                 "p",
-		kv("svc", "thing.rotator"):            "x",
+		kv("git", "gitlab.example.com.root.keysec"): "tokenvalue",
+		kv("keysec", "plain"):                       "p",
+		kv("svc", "thing.rotator"):                  "x",
 	})
 	writeLegacy(t, `[
-		{"name":"git.repo.flay.ai.root.keysec"},
+		{"name":"git.gitlab.example.com.root.keysec"},
 		{"name":"plain"},
 		{"name":"thing.rotator"}
 	]`)
@@ -96,16 +96,16 @@ func TestRunMovesDottedSkipsDotlessAndRotator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !contains(sum.Moved, "git.repo.flay.ai.root.keysec") {
+	if !contains(sum.Moved, "git.gitlab.example.com.root.keysec") {
 		t.Errorf("moved = %v, want the dotted key", sum.Moved)
 	}
 	if len(sum.Skipped) != 2 {
 		t.Fatalf("skipped = %v, want 2 (dotless + reserved)", sum.Skipped)
 	}
-	if v, _ := store.m[kv("keysec", "git.repo.flay.ai.root.keysec")]; v != "tokenvalue" {
+	if v, _ := store.m[kv("keysec", "git.gitlab.example.com.root.keysec")]; v != "tokenvalue" {
 		t.Errorf("new location = %q, want the moved value", v)
 	}
-	if _, ok := store.m[kv("git", "repo.flay.ai.root.keysec")]; ok {
+	if _, ok := store.m[kv("git", "gitlab.example.com.root.keysec")]; ok {
 		t.Error("old location should have been deleted")
 	}
 	if !sum.FileRemoved {

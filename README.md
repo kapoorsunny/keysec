@@ -7,12 +7,45 @@ operating system. **Nothing is ever stored in plaintext on disk.**
 
 ---
 
-## The problem this solves
+## Requirements
+
+- **macOS** — secrets live in the system Keychain.
+- **Go 1.25+** to build from source.
+
+That's it. The only external program keysec shells out to is the built-in
+`security` CLI, so it works in scripts, launchd jobs, and git, non-interactively.
+
+## Install
+
+### Option A — build from source (always matches this checkout)
+
+```bash
+git clone https://github.com/kapoorsunny/keysec
+cd keysec
+go build -o keysec .
+sudo install -m 755 keysec /usr/local/bin/keysec   # or any directory on $PATH
+keysec help                                        # verify: usage + examples, exit 0
+```
+
+### Option B — `go install` from the module
+
+```bash
+go install github.com/kapoorsunny/keysec@latest
+```
+
+The prebuilt `keysec` file at the repo root is git-ignored; build fresh so the
+installed binary matches the checkout. The first time a *new* program reads a
+secret, macOS asks you to "always allow" it in an approval dialog; afterwards
+it is silent.
+
+---
+
+## Why we need this
 
 Secrets today live in scattered, fragile places on a Mac:
 
 - a plaintext `git-credentials` file that git **silently empties** the moment a token goes stale,
-- tool config files (like `~/.config/rubric/config`) with tokens in them, in the open,
+- tool config files (like `~/.config/yourtool/config`) with tokens in them, in the open,
 - tokens that never rotate, so the one that leaked stays good for years,
 - background jobs that then fail at 9am with cryptic errors like
   `could not read Username: Device not configured` — and nobody knows why,
@@ -38,6 +71,7 @@ in place.
 | Command | What it does (plain English) |
 |---|---|
 | `keysec set <key>` | Save a secret. If you don't type a value, it **asks you, hidden** (like a password field) |
+| `keysec run --env NAME=key [--] cmd` | Inject secrets into one command as environment variables only — never disk, history, or `.env` files |
 | `keysec get <key>` | Print the secret — for you, or for a script |
 | `keysec update <key>` | Change a secret, but only if it already exists |
 | `keysec rm <key>` | Delete a secret (and its rotator) — **asks you to confirm first** |
@@ -46,34 +80,34 @@ in place.
 | `keysec rotate --all [--due]` | Rotate every key (or just the ones whose expiry has passed) |
 | `keysec rotator get\|set\|rm` | Inspect or configure a key's rotation plan |
 | `keysec audit [--within <dur>]` | Lifecycle report: which keys are healthy, due, or past due |
-| `keysec doctor [--migrate]` | Check the vault, or import a v0.1 index into the keychain-only model |
+| `keysec doctor [--migrate]` | Health check for the vault; optionally migrate a legacy key index |
 | `keysec git-credential` | *For git, not for humans* — lets git read/write tokens straight from the Keychain (see below) |
 | `keysec help` | Friendly help with examples |
 
-**Keys are friendly names.** `mytoken` or `gitlab.repo_flay` — a word, or a
+**Keys are friendly names.** `mytoken` or `github.repo` — a word, or a
 word with a dot. Letters, digits, dots, dashes. No paths, no JSON, no flags
 you must know.
 
 ### A typical 30 seconds
 
 ```
-$ keysec set gitlab.repo_flay
-  value for 'gitlab.repo_flay' (hidden): ********
-✓ saved 'gitlab.repo_flay'
+$ keysec set gitlab.api_token
+  value for 'gitlab.api_token' (hidden): ********
+✓ saved 'gitlab.api_token'
    stored encrypted in your Mac's keychain
 
-$ keysec get gitlab.repo_flay
+$ keysec get gitlab.api_token
 glpat-abc123...
 
 $ keysec list
   KEY                 SAVED       ROTATES
-  gitlab.repo_flay    2026-09-04  vendor/gitlab
+  gitlab.api_token    2026-09-04  vendor/gitlab
 ```
 
 ## How it works (in one paragraph)
 
 Every key maps to exactly one **Keychain item**: the reserved service `keysec`
-plus the full key name as the account — `keysec / gitlab.repo_flay`. Dots in a
+plus the full key name as the account — `keysec / gitlab.api_token`. Dots in a
 name are just characters, not coordinates. The Keychain is the **only index**:
 `list` enumerates it with `security dump-keychain` (names and dates only;
 macOS never dumps values), so there is no `keys.json` and no way for the index
@@ -89,7 +123,7 @@ key, then rotation is one command:
 ```
 keysec rotator set gitlab.token --kind vendor/gitlab \
   --meta url=https://gitlab.com \
-  --auth-key git.repo.flay.ai.root.keysec
+  --auth-key git.gitlab.example.com.root.keysec
 
 keysec rotate gitlab.token          # new token created, stored, old one revoked
 keysec rotate --all --due           # sweep everything past its expiry
@@ -111,7 +145,7 @@ untouched.
 One line in your git config:
 
 ```
-[credential "https://repo.flay.ai"]
+[credential "https://gitlab.example.com"]
     helper = /usr/local/bin/keysec git-credential
 ```
 
@@ -121,18 +155,6 @@ when git rejects one, keysec forgets it (git's protocol, faithfully followed).
 Background jobs that use git work the same way, and the whole class of bug we
 debugged — *token silently evicted, job fails with a cryptic error* — is
 structurally gone, because the token has a durable, encrypted home.
-
-## Upgrading from v0.1
-
-v0.1 kept a `keys.json` index and mapped a key's first dot segment to the
-Keychain *service*. v0.2 makes the Keychain the only index and puts every key
-under service `keysec`. One command moves your vault:
-
-```
-keysec doctor --migrate
-```
-
-It relocates each secret to its v0.2 coordinates and removes the legacy file.
 
 ## For agents and scripts: `--json`
 
@@ -157,22 +179,32 @@ speaks git's own protocol and ignores `--json`.
 3. **Secrets are entered hidden** (like a password field) and never echoed back.
 4. **Destructive actions confirm first** — and scripts can pass `--yes` to skip the question.
 5. **Every error tells you the next step.**
-   - `✗ no key called 'gitlab.tken'` → `   did you mean 'gitlab.repo_flay'? try: keysec list`
+   - `✗ no key called 'gitlab.tken'` → `   did you mean 'gitlab.api_token'? try: keysec list`
    - `✗ your keychain is locked` → `   unlock it: security unlock  (or open Keychain Access)`
 6. **Colors when you're in a terminal, plain text when piped** — pretty for humans, safe for scripts.
 7. **`get` prints only the raw value to stdout** — decorations go to stderr, so `$(keysec get k)` is always clean.
 
 ## What keysec is *not*
 
-- **Not a workflow engine.** Attractor is for multi-step, agentic, asynchronous
-  work (your paper-watcher, fork-sync). A secret lookup is a dictionary
+- **Not a workflow engine.** Multi-step, agentic, asynchronous work is what a
+  workflow engine is for. A secret lookup is a dictionary
   lookup — it needs a 5-millisecond synchronous tool, not a pipeline.
 - **Not a team secret manager.** No server, no sharing, no web UI. It's *your*
   Mac, *your* login, *your* keys.
 - **Not cross-platform (yet).** The Keychain is macOS. If you later need
   Linux, the plan is an encrypted-file backend behind the same commands.
 
-## v0.2 scope
+## Repository layout
+
+- `main.go`, `internal/` — the CLI, package per capability (`key`, `keychain`,
+  `gitcred`, `migrate`, `machine`, `rotator`, `ui`, `cmd`)
+- `docs/script-rotation.md` — the `script` rotator contract + its live test
+- `skills/keysec/SKILL.md` — the agent-facing manual: install, every command,
+  `--json` machine mode, git integration, and troubleshooting
+- `test/` — live integration fixtures (a dummy Python rotation server for the
+  `script` rotator)
+
+## Scope
 
 1. `set` / `get` / `update` / `rm` / `list` — generic key-value over the Keychain
 2. Keychain-only index (no `keys.json`): `list` enumerates via `security dump-keychain`, migration via `doctor --migrate`
@@ -183,6 +215,6 @@ speaks git's own protocol and ignores `--json`.
 7. one Go binary (standard library plus `golang.org/x/term` for hidden prompts), installs to `/usr/local/bin/keysec`
 
 **Success looks like:** `keysec set`/`get`/`list` feel like a friendly app;
-your `repo.flay.ai` token lives in the Keychain; git authenticates through it;
-`keysec audit` reports nothing overdue; the 9am `laa-self-update` job runs
+your `gitlab.example.com` token lives in the Keychain; git authenticates through it;
+`keysec audit` reports nothing overdue; the scheduled job at 09:00 runs
 clean with zero plaintext token files on disk.

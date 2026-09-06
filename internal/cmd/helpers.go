@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
-	"repo.flay.ai/root/keysec/internal/key"
-	"repo.flay.ai/root/keysec/internal/keychain"
-	"repo.flay.ai/root/keysec/internal/machine"
+	"github.com/kapoorsunny/keysec/internal/key"
+	"github.com/kapoorsunny/keysec/internal/keychain"
+	"github.com/kapoorsunny/keysec/internal/machine"
 )
 
 // lockedError builds a typed locked-keychain error with the next-step

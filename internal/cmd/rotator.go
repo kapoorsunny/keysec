@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"repo.flay.ai/root/keysec/internal/key"
-	"repo.flay.ai/root/keysec/internal/keychain"
-	"repo.flay.ai/root/keysec/internal/machine"
-	"repo.flay.ai/root/keysec/internal/rotator"
-	"repo.flay.ai/root/keysec/internal/ui"
+	"github.com/kapoorsunny/keysec/internal/key"
+	"github.com/kapoorsunny/keysec/internal/keychain"
+	"github.com/kapoorsunny/keysec/internal/machine"
+	"github.com/kapoorsunny/keysec/internal/rotator"
+	"github.com/kapoorsunny/keysec/internal/ui"
 )
 
 // Rotator implements the "keysec rotator" group: get, set and rm a

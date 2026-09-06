@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"repo.flay.ai/root/keysec/internal/machine"
-	"repo.flay.ai/root/keysec/internal/rotator"
+	"github.com/kapoorsunny/keysec/internal/machine"
+	"github.com/kapoorsunny/keysec/internal/rotator"
 )
 
 // Audit reviews every key's rotation status. --within is how close to

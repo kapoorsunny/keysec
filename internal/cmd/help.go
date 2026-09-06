@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"repo.flay.ai/root/keysec/internal/ui"
+	"github.com/kapoorsunny/keysec/internal/ui"
 )
 
 // Help prints keysec's friendly help with examples.
@@ -29,7 +29,7 @@ Commands
 
 Keys are friendly names; every key lives under one reserved service.
   mytoken         -> service "keysec", account "mytoken"
-  git.repo.flay.ai -> service "keysec", account "git.repo.flay.ai"
+  git.gitlab.example.com -> service "keysec", account "git.gitlab.example.com"
 
 Run (inject secrets into one command only)
   Run a command with selected secrets as environment variables, so they
@@ -50,7 +50,7 @@ Rotators
 
     keysec rotator set gitlab.token --kind vendor/gitlab \
       --meta url=https://gitlab.com \
-      --auth-key git.repo.flay.ai.root.keysec
+      --auth-key git.gitlab.example.com.root.keysec
 
     keysec rotator set backup.token --kind generate --length 48
 
@@ -74,7 +74,7 @@ For agents and scripts: --json
   affects git-credential (which speaks git's own protocol).
 
 Let git keep its tokens in the Keychain — one line in your git config:
-  [credential "https://repo.flay.ai"]
+  [credential "https://gitlab.example.com"]
       helper = /usr/local/bin/keysec git-credential
 
 Then git pulls tokens from the Keychain and never writes a plaintext

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"io"
 
-	"repo.flay.ai/root/keysec/internal/key"
-	"repo.flay.ai/root/keysec/internal/keychain"
+	"github.com/kapoorsunny/keysec/internal/key"
+	"github.com/kapoorsunny/keysec/internal/keychain"
 )
 
 // Shim implements the "git-credential" subcommand: it speaks git's

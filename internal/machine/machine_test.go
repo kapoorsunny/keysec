@@ -37,7 +37,7 @@ func TestExitCode(t *testing.T) {
 }
 
 func TestErrorJSONShape(t *testing.T) {
-	e := &Error{Kind: KindNotFound, Key: "gitlab.tken", Hint: "did you mean 'gitlab.repo_flay'?", Message: "no key called 'gitlab.tken'"}
+	e := &Error{Kind: KindNotFound, Key: "gitlab.tken", Hint: "did you mean 'gitlab.api_token'?", Message: "no key called 'gitlab.tken'"}
 	var m map[string]any
 	if err := json.Unmarshal([]byte(marshal(t, e)), &m); err != nil {
 		t.Fatal(err)

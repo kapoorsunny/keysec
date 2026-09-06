@@ -28,7 +28,7 @@ var nameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 // location: the reserved service plus the full name as account. Dots in
 // the name are just characters, not coordinates.
 type Key struct {
-	Name    string // full friendly name, e.g. "gitlab.repo_flay"
+	Name    string // full friendly name, e.g. "gitlab.api_token"
 	Service string // always ReservedService
 	Account string // always equal to Name
 }
@@ -41,7 +41,7 @@ func Parse(name string) (Key, error) {
 		return Key{}, fmt.Errorf("%w: names must be 1-%d characters", ErrInvalid, maxNameLen)
 	}
 	if !nameRe.MatchString(name) {
-		return Key{}, fmt.Errorf("%w: use letters, digits, dots and dashes (e.g. 'gitlab.repo_flay')", ErrInvalid)
+		return Key{}, fmt.Errorf("%w: use letters, digits, dots and dashes (e.g. 'gitlab.api_token')", ErrInvalid)
 	}
 	if strings.Contains(name, "..") || strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".") {
 		return Key{}, fmt.Errorf("%w: no empty segments (avoid '..' and leading/trailing dots)", ErrInvalid)

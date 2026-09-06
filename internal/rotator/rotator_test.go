@@ -28,7 +28,7 @@ func TestValidate(t *testing.T) {
 		{&Spec{Kind: KindGenerate, Length: 16, Charset: strings.Repeat("a", 300)}, true},
 		{&Spec{Kind: KindGenerate, Length: 4, Charset: strings.Repeat("é", 256)}, false}, // bytes double the runes
 		{&Spec{Kind: KindGenerate, Length: 4, Charset: strings.Repeat("é", 257)}, true},
-		{&Spec{Kind: KindVendorGithub, AuthKey: "gitlab.repo_flay"}, false},
+		{&Spec{Kind: KindVendorGithub, AuthKey: "gitlab.api_token"}, false},
 		{&Spec{Kind: KindVendorGithub, AuthKey: "bad/name"}, true},
 		{&Spec{Kind: KindVendorGitlab, Meta: map[string]string{"url": "https://git.example"}}, false},
 		{&Spec{Kind: KindHTTP, URL: "https://x", Timeout: "notaduration"}, true},

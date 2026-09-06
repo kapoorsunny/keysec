@@ -17,26 +17,26 @@ class: "genp"
 attributes:
     0x00000000 <blob>=<NULL>
     0x00000007 <blob>="git"
-    0x00000008 <blob>="repo.flay.ai.root.keysec"
+    0x00000008 <blob>="gitlab.example.com.root.keysec"
     0x00000019 <timedate>=0x4143D7E8  "20250202105231Z\000"
     0x0000001A <timedate>=0x4143D7E8  "20260905105231Z\000"
     "cdat"<timedate>=0x4143D7E8  "20250202105231Z\000"
     "mdat"<timedate>=0x4143D7E8  "20260905105231Z\000"
     "svce"<blob>="git"
-    "acct"<blob>="repo.flay.ai.root.keysec"
+    "acct"<blob>="gitlab.example.com.root.keysec"
 keychain: "/Users/me/Library/Keychains/login.keychain-db"
 version: 512
 class: "genp"
 attributes:
     "svce"<blob>="keysec"
-    "acct"<blob>="gitlab.repo_flay"
+    "acct"<blob>="gitlab.api_token"
     "cdat"<timedate>=0x4143D7E8  "20260101120000Z\000"
     "mdat"<timedate>=0x4143D7E8  "20260101120000Z\000"
 keychain: "/Users/me/Library/Keychains/login.keychain-db"
 version: 512
 class: "inet"
 attributes:
-    "srvr"<blob>="repo.flay.ai"
+    "srvr"<blob>="gitlab.example.com"
     "acct"<blob>="root"
 keychain: "/Users/me/Library/Keychains/login.keychain-db"
 version: 512
@@ -54,8 +54,8 @@ func TestParseDump(t *testing.T) {
 		t.Fatalf("entries = %d, want 2 (inet and cert blocks are skipped)", len(entries))
 	}
 	first := entries[0]
-	if first.Service != "git" || first.Account != "repo.flay.ai.root.keysec" {
-		t.Errorf("first = %q/%q, want git/repo.flay.ai.root.keysec", first.Service, first.Account)
+	if first.Service != "git" || first.Account != "gitlab.example.com.root.keysec" {
+		t.Errorf("first = %q/%q, want git/gitlab.example.com.root.keysec", first.Service, first.Account)
 	}
 	if first.Created.Format("2006-01-02") != "2025-02-02" {
 		t.Errorf("Created = %s, want 2025-02-02", first.Created)
@@ -64,8 +64,8 @@ func TestParseDump(t *testing.T) {
 		t.Errorf("Modified = %s, want 2026-09-05", first.Modified)
 	}
 	second := entries[1]
-	if second.Service != "keysec" || second.Account != "gitlab.repo_flay" {
-		t.Errorf("second = %q/%q, want keysec/gitlab.repo_flay", second.Service, second.Account)
+	if second.Service != "keysec" || second.Account != "gitlab.api_token" {
+		t.Errorf("second = %q/%q, want keysec/gitlab.api_token", second.Service, second.Account)
 	}
 	if second.Modified.Format("2006-01-02") != "2026-01-01" {
 		t.Errorf("second Modified = %s, want 2026-01-01", second.Modified)
@@ -147,8 +147,8 @@ func TestSecurityList(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatalf("entries = %d, want 1 (only the keysec service block)", len(entries))
 	}
-	if entries[0].Account != "gitlab.repo_flay" {
-		t.Errorf("Account = %q, want gitlab.repo_flay", entries[0].Account)
+	if entries[0].Account != "gitlab.api_token" {
+		t.Errorf("Account = %q, want gitlab.api_token", entries[0].Account)
 	}
 	// The one real key on this machine (svce "git") must not appear:
 	// its coordinates live outside the reserved keysec service.

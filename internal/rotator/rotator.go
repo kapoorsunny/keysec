@@ -16,7 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"repo.flay.ai/root/keysec/internal/key"
+	"github.com/kapoorsunny/keysec/internal/key"
 )
 
 // Kind identifiers.

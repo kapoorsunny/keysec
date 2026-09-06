@@ -3,8 +3,8 @@ package cmd
 import (
 	"context"
 
-	"repo.flay.ai/root/keysec/internal/machine"
-	"repo.flay.ai/root/keysec/internal/migrate"
+	"github.com/kapoorsunny/keysec/internal/machine"
+	"github.com/kapoorsunny/keysec/internal/migrate"
 )
 
 // List implements "keysec list". It reads the Keychain itself — the

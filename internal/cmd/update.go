@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"repo.flay.ai/root/keysec/internal/machine"
+	"github.com/kapoorsunny/keysec/internal/machine"
 )
 
 // Update implements "keysec update <key> [value]".

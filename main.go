@@ -6,9 +6,9 @@ import (
 	"context"
 	"os"
 
-	"repo.flay.ai/root/keysec/internal/cmd"
-	"repo.flay.ai/root/keysec/internal/keychain"
-	"repo.flay.ai/root/keysec/internal/ui"
+	"github.com/kapoorsunny/keysec/internal/cmd"
+	"github.com/kapoorsunny/keysec/internal/keychain"
+	"github.com/kapoorsunny/keysec/internal/ui"
 )
 
 func main() {

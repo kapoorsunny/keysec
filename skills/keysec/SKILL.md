@@ -50,7 +50,7 @@ fresh so the installed binary matches the checkout.
 
 **Key names:** letters, digits, dots, dashes; 1–255 chars; no leading/trailing
 dot or `..`. Every key maps to Keychain service `keysec` with the **full name**
-as the account — `keysec / gitlab.repo_flay`. Names ending in `.rotator` are
+as the account — `keysec / gitlab.api_token`. Names ending in `.rotator` are
 reserved for rotation specs.
 
 ## Rotators
@@ -65,7 +65,7 @@ keysec rotator set backup.token --kind generate --length 48
 # real GitLab PAT via the stored credential of another key
 keysec rotator set gitlab.token --kind vendor/gitlab \
   --meta url=https://gitlab.com \
-  --auth-key git.repo.flay.ai.root.keysec
+  --auth-key git.gitlab.example.com.root.keysec
 
 # GitHub fine-grained PAT
 keysec rotator set gh.token --kind vendor/github \
@@ -144,14 +144,14 @@ Point git at keysec so tokens live in the Keychain instead of a plaintext
 `~/.git-credentials`:
 
 ```
-git config --global credential.'https://repo.flay.ai'.helper '/usr/local/bin/keysec git-credential'
+git config --global credential.'https://gitlab.example.com'.helper '/usr/local/bin/keysec git-credential'
 ```
 
 Then git's normal flow runs over the vault: keysec stores tokens git
 approves, forgets tokens git rejects, and answers `get` silently (empty
 output = "no credential here", so git falls back to its usual prompts).
 The derived key is deterministic: `git.<host>` plus a dot-joined segment per
-path piece (`.git` dropped) — e.g. `git.repo.flay.ai.root.keysec`. Do not call
+path piece (`.git` dropped) — e.g. `git.gitlab.example.com.root.keysec`. Do not call
 `git-credential` by hand; it speaks git's percent-encoded wire protocol.
 
 ## Migrating from v0.1

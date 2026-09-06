@@ -5,10 +5,10 @@ import (
 	"errors"
 	"strings"
 
-	"repo.flay.ai/root/keysec/internal/key"
-	"repo.flay.ai/root/keysec/internal/machine"
-	"repo.flay.ai/root/keysec/internal/migrate"
-	"repo.flay.ai/root/keysec/internal/ui"
+	"github.com/kapoorsunny/keysec/internal/key"
+	"github.com/kapoorsunny/keysec/internal/machine"
+	"github.com/kapoorsunny/keysec/internal/migrate"
+	"github.com/kapoorsunny/keysec/internal/ui"
 )
 
 // Doctor inspects the installation and, with --migrate, relocates a

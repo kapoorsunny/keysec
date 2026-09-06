@@ -65,7 +65,7 @@ func Usage(message, hint string) *Error {
 
 // InvalidKey reports a key name that fails validation.
 func InvalidKey(keyName, message string) *Error {
-	return &Error{Kind: KindInvalidKey, Key: keyName, Hint: "names look like 'mytoken' or 'gitlab.repo_flay'", Message: message}
+	return &Error{Kind: KindInvalidKey, Key: keyName, Hint: "names look like 'mytoken' or 'gitlab.api_token'", Message: message}
 }
 
 // IO reports an I/O or keychain failure that is not one of the above.

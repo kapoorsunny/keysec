@@ -6,11 +6,11 @@ import (
 	"context"
 	"io"
 
-	"repo.flay.ai/root/keysec/internal/gitcred"
-	"repo.flay.ai/root/keysec/internal/key"
-	"repo.flay.ai/root/keysec/internal/keychain"
-	"repo.flay.ai/root/keysec/internal/machine"
-	"repo.flay.ai/root/keysec/internal/ui"
+	"github.com/kapoorsunny/keysec/internal/gitcred"
+	"github.com/kapoorsunny/keysec/internal/key"
+	"github.com/kapoorsunny/keysec/internal/keychain"
+	"github.com/kapoorsunny/keysec/internal/machine"
+	"github.com/kapoorsunny/keysec/internal/ui"
 )
 
 // App bundles the dependencies shared by all commands.

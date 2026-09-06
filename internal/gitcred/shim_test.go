@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"repo.flay.ai/root/keysec/internal/keychain"
+	"github.com/kapoorsunny/keysec/internal/keychain"
 )
 
 type fakeStore struct {
@@ -72,13 +72,13 @@ func newShim(store *fakeStore) *Shim {
 func TestApproveStoresToken(t *testing.T) {
 	s := newShim(&fakeStore{m: map[string]string{}})
 	err := s.Run(context.Background(), "approve",
-		strings.NewReader(credInput("https", "repo.flay.ai", "/flay/site.git", "oauth2", "tok-1")),
+		strings.NewReader(credInput("https", "gitlab.example.com", "/acme/site.git", "oauth2", "tok-1")),
 		io.Discard, io.Discard)
 	if err != nil {
 		t.Fatalf("approve: %v", err)
 	}
-	if want := "tok-1"; s.store.(*fakeStore).m[keyOf("keysec", "git.repo.flay.ai.flay.site")] != want {
-		t.Errorf("stored = %v, want token under keysec/git.repo.flay.ai.flay.site", s.store.(*fakeStore).m)
+	if want := "tok-1"; s.store.(*fakeStore).m[keyOf("keysec", "git.gitlab.example.com.acme.site")] != want {
+		t.Errorf("stored = %v, want token under keysec/git.gitlab.example.com.acme.site", s.store.(*fakeStore).m)
 	}
 }
 

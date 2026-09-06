@@ -1,4 +1,4 @@
-module repo.flay.ai/root/keysec
+module github.com/kapoorsunny/keysec
 
 go 1.25.0
 

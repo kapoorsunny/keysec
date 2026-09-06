@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"repo.flay.ai/root/keysec/internal/key"
-	"repo.flay.ai/root/keysec/internal/keychain"
+	"github.com/kapoorsunny/keysec/internal/key"
+	"github.com/kapoorsunny/keysec/internal/keychain"
 )
 
 const (

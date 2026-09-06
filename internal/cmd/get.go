@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"repo.flay.ai/root/keysec/internal/keychain"
-	"repo.flay.ai/root/keysec/internal/machine"
+	"github.com/kapoorsunny/keysec/internal/keychain"
+	"github.com/kapoorsunny/keysec/internal/machine"
 )
 
 // Get implements "keysec get <key>".

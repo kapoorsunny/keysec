@@ -1,0 +1,25 @@
+class Keysec < Formula
+  desc "A pocket secret vault for your Mac - Keychain-backed CLI with secret rotation"
+  homepage "https://github.com/kapoorsunny/keysec"
+  version "VERSION"
+  license "MIT"
+
+  on_macos do
+    on_arm do
+      url "https://github.com/kapoorsunny/keysec/releases/download/TAG/keysec-aarch64-apple-darwin.tar.gz"
+      sha256 "ARM_SHA"
+    end
+    on_intel do
+      url "https://github.com/kapoorsunny/keysec/releases/download/TAG/keysec-x86_64-apple-darwin.tar.gz"
+      sha256 "INTEL_SHA"
+    end
+  end
+
+  def install
+    bin.install "keysec"
+  end
+
+  test do
+    assert_match "keysec", shell_output("#{bin}/keysec help")
+  end
+end

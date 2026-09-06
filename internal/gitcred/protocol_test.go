@@ -10,7 +10,7 @@ func TestPercentRoundTrip(t *testing.T) {
 		"plain",
 		"with space",
 		"token=123&x=y",
-		"https://repo.flay.ai/path",
+		"https://gitlab.example.com/path",
 		"café",
 		"pct%41",
 		"tab\there",
@@ -40,8 +40,8 @@ func TestPercentEncodeForm(t *testing.T) {
 func TestReadWriteRoundTrip(t *testing.T) {
 	cred := Credential{
 		Protocol: "https",
-		Host:     "repo.flay.ai",
-		Path:     "/flay/site.git",
+		Host:     "gitlab.example.com",
+		Path:     "/acme/site.git",
 		Username: "oauth2",
 		Password: "glpat-abc 123=x",
 	}
@@ -50,8 +50,8 @@ func TestReadWriteRoundTrip(t *testing.T) {
 		t.Fatalf("Write: %v", err)
 	}
 	want := "protocol=https\n" +
-		"host=repo.flay.ai\n" +
-		"path=%2Fflay%2Fsite.git\n" +
+		"host=gitlab.example.com\n" +
+		"path=%2Facme%2Fsite.git\n" +
 		"username=oauth2\n" +
 		"password=glpat-abc%20123%3Dx\n"
 	if buf.String() != want {
@@ -84,16 +84,16 @@ func TestKeyFor(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			cred: Credential{Protocol: "https", Host: "repo.flay.ai"},
-			want: "git.repo.flay.ai",
+			cred: Credential{Protocol: "https", Host: "gitlab.example.com"},
+			want: "git.gitlab.example.com",
 		},
 		{
-			cred: Credential{Protocol: "https", Host: "repo.flay.ai", Path: "/flay/site.git"},
-			want: "git.repo.flay.ai.flay.site",
+			cred: Credential{Protocol: "https", Host: "gitlab.example.com", Path: "/acme/site.git"},
+			want: "git.gitlab.example.com.acme.site",
 		},
 		{
-			cred: Credential{Protocol: "https", Host: "github.com", Path: "/flay/site"},
-			want: "git.github.com.flay.site",
+			cred: Credential{Protocol: "https", Host: "github.com", Path: "/acme/site"},
+			want: "git.github.com.acme.site",
 		},
 		{
 			cred:    Credential{Protocol: "https"},

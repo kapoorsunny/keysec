@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"repo.flay.ai/root/keysec/internal/keychain"
-	"repo.flay.ai/root/keysec/internal/ui"
+	"github.com/kapoorsunny/keysec/internal/keychain"
+	"github.com/kapoorsunny/keysec/internal/ui"
 )
 
 type fakeStore struct {
@@ -97,9 +97,9 @@ func decode(t *testing.T, b *bytes.Buffer, v any) {
 
 func TestGetJSON(t *testing.T) {
 	ta := newTestApp(t)
-	ta.store.m["keysec\x00gitlab.repo_flay"] = "glpat-abc"
+	ta.store.m["keysec\x00gitlab.api_token"] = "glpat-abc"
 
-	rc := ta.run(t, "get", "--json", "gitlab.repo_flay")
+	rc := ta.run(t, "get", "--json", "gitlab.api_token")
 	if rc != 0 {
 		t.Fatalf("exit = %d, want 0; stderr=%q", rc, ta.stderr.String())
 	}
@@ -108,7 +108,7 @@ func TestGetJSON(t *testing.T) {
 		Value string `json:"value"`
 	}
 	decode(t, ta.stdout, &v)
-	if v.Name != "gitlab.repo_flay" || v.Value != "glpat-abc" {
+	if v.Name != "gitlab.api_token" || v.Value != "glpat-abc" {
 		t.Errorf("get --json = %+v", v)
 	}
 }
@@ -126,7 +126,7 @@ func TestGetJSONHumanModeUnchanged(t *testing.T) {
 func TestGetJSONNotFound(t *testing.T) {
 	ta := newTestApp(t)
 	// Seed a close name so the suggestion machinery has something to find.
-	ta.store.m["keysec\x00gitlab.repo_flayx"] = "v"
+	ta.store.m["keysec\x00gitlab.api_tokenx"] = "v"
 
 	rc := ta.run(t, "get", "--json", "gitlab.tken")
 	if rc != 1 {
@@ -167,7 +167,7 @@ func TestListJSONEmpty(t *testing.T) {
 
 func TestListJSONPresent(t *testing.T) {
 	ta := newTestApp(t)
-	ta.store.m["keysec\x00gitlab.repo_flay"] = "tok"
+	ta.store.m["keysec\x00gitlab.api_token"] = "tok"
 
 	ta.run(t, "list", "--json")
 	var l struct {
@@ -178,14 +178,14 @@ func TestListJSONPresent(t *testing.T) {
 		} `json:"keys"`
 	}
 	decode(t, ta.stdout, &l)
-	if l.Count != 1 || l.Keys[0].Name != "gitlab.repo_flay" || l.Keys[0].Rotates != "" {
+	if l.Count != 1 || l.Keys[0].Name != "gitlab.api_token" || l.Keys[0].Rotates != "" {
 		t.Errorf("list --json = %+v", l)
 	}
 }
 
 func TestSetJSON(t *testing.T) {
 	ta := newTestApp(t)
-	rc := ta.run(t, "set", "--json", "gitlab.repo_flay", "tok-1")
+	rc := ta.run(t, "set", "--json", "gitlab.api_token", "tok-1")
 	if rc != 0 {
 		t.Fatalf("exit = %d, want 0; stderr=%q", rc, ta.stderr.String())
 	}
@@ -195,10 +195,10 @@ func TestSetJSON(t *testing.T) {
 		Key    string `json:"key"`
 	}
 	decode(t, ta.stdout, &a)
-	if !a.OK || a.Action != "saved" || a.Key != "gitlab.repo_flay" {
+	if !a.OK || a.Action != "saved" || a.Key != "gitlab.api_token" {
 		t.Errorf("set --json ack = %+v", a)
 	}
-	if ta.store.m["keysec\x00gitlab.repo_flay"] != "tok-1" {
+	if ta.store.m["keysec\x00gitlab.api_token"] != "tok-1" {
 		t.Error("value not stored")
 	}
 }

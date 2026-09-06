@@ -7,9 +7,9 @@ import (
 	"sort"
 	"time"
 
-	"repo.flay.ai/root/keysec/internal/key"
-	"repo.flay.ai/root/keysec/internal/keychain"
-	"repo.flay.ai/root/keysec/internal/rotator"
+	"github.com/kapoorsunny/keysec/internal/key"
+	"github.com/kapoorsunny/keysec/internal/keychain"
+	"github.com/kapoorsunny/keysec/internal/rotator"
 )
 
 // listedKey is one enumerated key with its rotator kind resolved.

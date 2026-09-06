@@ -10,8 +10,8 @@ func TestParse(t *testing.T) {
 		wantErr  bool
 	}{
 		{"mytoken", "keysec", "mytoken", false},
-		{"gitlab.repo_flay", "keysec", "gitlab.repo_flay", false},
-		{"git.repo.flay.ai", "keysec", "git.repo.flay.ai", false},
+		{"gitlab.api_token", "keysec", "gitlab.api_token", false},
+		{"git.gitlab.example.com", "keysec", "git.gitlab.example.com", false},
 		{"a.b.c.d", "keysec", "a.b.c.d", false},
 		{"A1-b_c", "keysec", "A1-b_c", false},
 		{"", "", "", true},
@@ -56,10 +56,10 @@ func TestParseRejectsReservedSuffix(t *testing.T) {
 // ParseServiceAccount maps enumerated Keychain coordinates back to a key,
 // and refuses anything outside the reserved service.
 func TestParseServiceAccount(t *testing.T) {
-	if k, err := ParseServiceAccount("keysec", "gitlab.repo_flay"); err != nil || k.Name != "gitlab.repo_flay" {
-		t.Errorf("ParseServiceAccount(keysec, gitlab.repo_flay) = %+v, %v", k, err)
+	if k, err := ParseServiceAccount("keysec", "gitlab.api_token"); err != nil || k.Name != "gitlab.api_token" {
+		t.Errorf("ParseServiceAccount(keysec, gitlab.api_token) = %+v, %v", k, err)
 	}
-	if _, err := ParseServiceAccount("git", "repo.flay.ai"); err == nil {
+	if _, err := ParseServiceAccount("git", "gitlab.example.com"); err == nil {
 		t.Error("ParseServiceAccount(git, ...) succeeded, want error")
 	}
 	if _, err := ParseServiceAccount("keysec", "foo.rotator"); err == nil {
@@ -106,9 +106,9 @@ func TestCompanionName(t *testing.T) {
 }
 
 func TestSuggest(t *testing.T) {
-	cands := []string{"gitlab.repo_flay", "github.token", "db.password"}
-	if got := Suggest("gitlab.repo_flay", cands); got != "gitlab.repo_flay" {
-		t.Errorf("Suggest = %q, want gitlab.repo_flay", got)
+	cands := []string{"gitlab.api_token", "github.token", "db.password"}
+	if got := Suggest("gitlab.api_token", cands); got != "gitlab.api_token" {
+		t.Errorf("Suggest = %q, want gitlab.api_token", got)
 	}
 	if got := Suggest("db.pssword", cands); got != "db.password" {
 		t.Errorf("Suggest = %q, want db.password", got)
