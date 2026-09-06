@@ -71,6 +71,8 @@ func (a *App) Execute(ctx context.Context, args []string) int {
 		run = a.Rotator
 	case "audit":
 		run = a.Audit
+	case "runs":
+		run = a.Runs
 	case "doctor":
 		run = a.Doctor
 	case "git-credential":
@@ -81,7 +83,7 @@ func (a *App) Execute(ctx context.Context, args []string) int {
 		Help(a.ui)
 		return 0
 	default:
-		e := machine.Usage("unknown command '"+cmd+"'", "available: run, set, get, update, rm, list, rotate, rotator, audit, doctor, git-credential, help")
+		e := machine.Usage("unknown command '"+cmd+"'", "available: run, set, get, update, rm, list, rotate, rotator, audit, runs, doctor, git-credential, help")
 		a.renderError(e)
 		return e.ExitCode()
 	}

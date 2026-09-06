@@ -53,7 +53,7 @@ func (a *App) suggest(ctx context.Context, needle string) string {
 	}
 	var names []string
 	for _, e := range entries {
-		if key.IsCompanion(e.Account) {
+		if key.IsReserved(e.Account) {
 			continue
 		}
 		names = append(names, e.Account)

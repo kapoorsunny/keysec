@@ -49,6 +49,9 @@ func (a *App) doctorHealth(ctx context.Context) error {
 			rotators = append(rotators, e.Account)
 			continue
 		}
+		if e.Account == key.ReservedRunLog {
+			continue // the run handoff log lives in the Keychain, not the vault
+		}
 		keys = append(keys, e.Account)
 		isParent[e.Account] = true
 	}

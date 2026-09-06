@@ -1,8 +1,12 @@
 package cmd
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/kapoorsunny/keysec/internal/keychain"
+	"github.com/kapoorsunny/keysec/internal/runlog"
 )
 
 // --- parseEnvArg unit tests ---
@@ -306,5 +310,167 @@ func TestRunStdinForwarded(t *testing.T) {
 	}
 	if got := ta.stdout.String(); got != "piped-data" {
 		t.Errorf("stdout = %q, want 'piped-data'", got)
+	}
+}
+
+// --- run hardening: wildcards, handoff log, masking ---
+
+func TestRunWildcardRefused(t *testing.T) {
+	ta := newTestApp(t)
+	ta.store.m["keysec\x00tok"] = "v"
+
+	for _, bad := range []string{"*", "TOKEN=*", "TOKEN=prod_*", "TOKEN=?"} {
+		rc := ta.run(t, "run", "--env", bad, "--", "echo", "hi")
+		if rc != 2 {
+			t.Errorf("--env %q exit = %d, want 2 (usage)", bad, rc)
+		}
+		if ta.stdout.Len() != 0 {
+			t.Errorf("--env %q: stdout should be empty, got %q", bad, ta.stdout.String())
+		}
+	}
+}
+
+func TestRunRecordsHandoff(t *testing.T) {
+	ta := newTestApp(t)
+	ta.store.m["keysec\x00mytoken"] = "s3cret"
+	ta.store.m["keysec\x00other"] = "o2"
+
+	rc := ta.run(t, "run",
+		"--env", "TOKEN=mytoken",
+		"--env", "ALT=other",
+		"--", "bash", "-c", "echo $TOKEN $ALT")
+	if rc != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%q", rc, ta.stderr.String())
+	}
+
+	raw, ok := ta.store.m["keysec\x00.runlog"]
+	if !ok {
+		t.Fatal("expected a .runlog entry in the store")
+	}
+	var log runlog.Log
+	if err := json.Unmarshal([]byte(raw), &log); err != nil {
+		t.Fatalf("stored run log is not JSON: %v", err)
+	}
+	if log.Seq != 1 || len(log.Entries) != 1 {
+		t.Fatalf("log = %+v, want one entry", log)
+	}
+	e := log.Entries[0]
+	if e.Cmd != "bash -c echo $TOKEN $ALT" {
+		t.Errorf("cmd = %q", e.Cmd)
+	}
+	if len(e.Env) != 2 || e.Env[0] != "mytoken" || e.Env[1] != "other" {
+		t.Errorf("logged keys = %v, want sorted [mytoken other]", e.Env)
+	}
+}
+
+func TestRunRecordsHandoffDedupesKeys(t *testing.T) {
+	ta := newTestApp(t)
+	ta.store.m["keysec\x00tok"] = "v"
+
+	rc := ta.run(t, "run", "--env", "A=tok", "--env", "B=tok", "--", "echo", "hi")
+	if rc != 0 {
+		t.Fatalf("exit = %d, want 0", rc)
+	}
+	raw := ta.store.m["keysec\x00.runlog"]
+	var log runlog.Log
+	if err := json.Unmarshal([]byte(raw), &log); err != nil {
+		t.Fatalf("stored run log is not JSON: %v", err)
+	}
+	if len(log.Entries) != 1 || len(log.Entries[0].Env) != 1 || log.Entries[0].Env[0] != "tok" {
+		t.Errorf("expected one unique key tok, got %+v", log.Entries)
+	}
+}
+
+func TestRunNoEnvLeavesNoTrace(t *testing.T) {
+	ta := newTestApp(t)
+	rc := ta.run(t, "run", "--", "echo", "hi")
+	if rc != 0 {
+		t.Fatalf("exit = %d, want 0", rc)
+	}
+	if _, ok := ta.store.m["keysec\x00.runlog"]; ok {
+		t.Error("a run with no secrets should not be logged")
+	}
+}
+
+func TestRunAppendsChainedEntries(t *testing.T) {
+	ta := newTestApp(t)
+	ta.store.m["keysec\x00tok"] = "v"
+
+	for i := 0; i < 3; i++ {
+		if rc := ta.run(t, "run", "--env", "TOKEN=tok", "--", "echo", "hi"); rc != 0 {
+			t.Fatalf("run %d exit = %d", i, rc)
+		}
+	}
+	var log runlog.Log
+	if err := json.Unmarshal([]byte(ta.store.m["keysec\x00.runlog"]), &log); err != nil {
+		t.Fatalf("stored run log is not JSON: %v", err)
+	}
+	if len(log.Entries) != 3 {
+		t.Fatalf("want 3 entries, got %d", len(log.Entries))
+	}
+	for i := 1; i < 3; i++ {
+		if log.Entries[i].Prev != log.Entries[i-1].Sha {
+			t.Errorf("entry %d does not chain to entry %d", i, i-1)
+		}
+	}
+}
+
+func TestRunAbortsWhenLogWriteFails(t *testing.T) {
+	ta := newTestApp(t)
+	ta.store.m["keysec\x00tok"] = "v"
+	ta.store.putErr = keychain.ErrLocked
+
+	rc := ta.run(t, "run", "--env", "TOKEN=tok", "--", "bash", "-c", "echo SHOULD_NOT_RUN")
+	if rc != 1 {
+		t.Fatalf("exit = %d, want 1", rc)
+	}
+	if strings.Contains(ta.stdout.String(), "SHOULD_NOT_RUN") {
+		t.Error("child ran despite the log write failing")
+	}
+	if !strings.Contains(strings.ToLower(ta.stderr.String()), "lock") {
+		t.Errorf("stderr should mention a locked keychain, got %q", ta.stderr.String())
+	}
+}
+
+func TestRunMask(t *testing.T) {
+	ta := newTestApp(t)
+	ta.store.m["keysec\x00mytoken"] = "s3cret-tok"
+
+	rc := ta.run(t, "run", "--mask", "--env", "TOKEN=mytoken", "--", "bash", "-c", "echo $TOKEN")
+	if rc != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%q", rc, ta.stderr.String())
+	}
+	if got := strings.TrimSpace(ta.stdout.String()); got != "***" {
+		t.Errorf("stdout = %q, want '***' (secret must not leak)", got)
+	}
+}
+
+func TestRunMaskOffLeaksAsBefore(t *testing.T) {
+	ta := newTestApp(t)
+	ta.store.m["keysec\x00mytoken"] = "s3cret-tok"
+
+	rc := ta.run(t, "run", "--env", "TOKEN=mytoken", "--", "bash", "-c", "echo $TOKEN")
+	if rc != 0 {
+		t.Fatalf("exit = %d, want 0", rc)
+	}
+	if got := strings.TrimSpace(ta.stdout.String()); got != "s3cret-tok" {
+		t.Errorf("stdout = %q, want the raw secret (mask is opt-in)", got)
+	}
+}
+
+func TestRunMaskScrubsBothStreams(t *testing.T) {
+	ta := newTestApp(t)
+	ta.store.m["keysec\x00mytoken"] = "s3cret-tok"
+
+	rc := ta.run(t, "run", "--mask", "--env", "TOKEN=mytoken", "--",
+		"bash", "-c", "echo out:$TOKEN; echo err:$TOKEN >&2")
+	if rc != 0 {
+		t.Fatalf("exit = %d, want 0", rc)
+	}
+	if strings.Contains(ta.stdout.String(), "s3cret-tok") || strings.Contains(ta.stderr.String(), "s3cret-tok") {
+		t.Errorf("secret leaked: stdout=%q stderr=%q", ta.stdout.String(), ta.stderr.String())
+	}
+	if !strings.Contains(ta.stdout.String(), "***") || !strings.Contains(ta.stderr.String(), "***") {
+		t.Errorf("marker missing: stdout=%q stderr=%q", ta.stdout.String(), ta.stderr.String())
 	}
 }

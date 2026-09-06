@@ -91,6 +91,19 @@ func TestIsCompanion(t *testing.T) {
 	}
 }
 
+func TestIsReserved(t *testing.T) {
+	for _, reserved := range []string{"foo.rotator", ReservedRunLog} {
+		if !IsReserved(reserved) {
+			t.Errorf("IsReserved(%q) = false, want true", reserved)
+		}
+	}
+	for _, userKey := range []string{"foo", "foo.rotatorx", "rotator", "runlog"} {
+		if IsReserved(userKey) {
+			t.Errorf("IsReserved(%q) = true, want false", userKey)
+		}
+	}
+}
+
 // CompanionName swaps a key name back and forth with its companion
 // account.
 func TestCompanionName(t *testing.T) {

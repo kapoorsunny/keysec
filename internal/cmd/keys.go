@@ -30,7 +30,7 @@ func (a *App) listedKeys(ctx context.Context) ([]listedKey, error) {
 	}
 	out := make([]listedKey, 0, len(entries))
 	for _, e := range entries {
-		if key.IsCompanion(e.Account) {
+		if key.IsReserved(e.Account) {
 			continue
 		}
 		if _, err := key.ParseServiceAccount(e.Service, e.Account); err != nil {

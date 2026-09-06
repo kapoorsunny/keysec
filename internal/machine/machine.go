@@ -175,3 +175,22 @@ type Audit struct {
 	Count int        `json:"count"`
 	Keys  []AuditKey `json:"keys"`
 }
+
+// RunEntry is one handoff recorded by "keysec run": which secret keys
+// were injected into which command, and when. Sha is the entry's link
+// in the tamper-evident chain.
+type RunEntry struct {
+	Seq int      `json:"seq"`
+	At  string   `json:"at"`
+	Cmd string   `json:"command"`
+	Env []string `json:"secret_keys"`
+	Sha string   `json:"sha,omitempty"`
+}
+
+// Runs is the machine form of "keysec runs". Tampered marks a log whose
+// stored chain failed verification.
+type Runs struct {
+	Count    int        `json:"count"`
+	Entries  []RunEntry `json:"entries"`
+	Tampered bool       `json:"tampered,omitempty"`
+}
