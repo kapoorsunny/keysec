@@ -114,6 +114,79 @@ func TestGetReturnsStoredToken(t *testing.T) {
 	}
 }
 
+func TestGetAddsDefaultUsernameWhenRequestHasNone(t *testing.T) {
+	fs := &fakeStore{m: map[string]string{keyOf("keysec", "git.example.com"): "tok-3"}}
+	s := newShim(fs)
+	var out bytes.Buffer
+	err := s.Run(context.Background(), "get",
+		strings.NewReader(credInput("https", "example.com", "", "", "")),
+		&out, io.Discard)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	got, err := Read(&out)
+	if err != nil {
+		t.Fatalf("re-read helper output: %v", err)
+	}
+	if got.Username != tokenUsername {
+		t.Errorf("username = %q, want tokenUsername %q", got.Username, tokenUsername)
+	}
+	if got.Password != "tok-3" {
+		t.Errorf("password = %q, want tok-3", got.Password)
+	}
+}
+
+func TestGetKeepsRequestedUsername(t *testing.T) {
+	fs := &fakeStore{m: map[string]string{keyOf("keysec", "git.example.com"): "tok-3"}}
+	s := newShim(fs)
+	var out bytes.Buffer
+	err := s.Run(context.Background(), "get",
+		strings.NewReader(credInput("https", "example.com", "", "alice", "")),
+		&out, io.Discard)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	got, err := Read(&out)
+	if err != nil {
+		t.Fatalf("re-read helper output: %v", err)
+	}
+	if got.Username != "alice" {
+		t.Errorf("username = %q, want the one git requested (alice)", got.Username)
+	}
+	if got.Password != "tok-3" {
+		t.Errorf("password = %q, want tok-3", got.Password)
+	}
+}
+
+func TestGetAgentStylePushRoundTrip(t *testing.T) {
+	fs := &fakeStore{m: map[string]string{}}
+	s := newShim(fs)
+	// approve: git sends the credential back, including the username
+	// the helper invented; only the password should be persisted.
+	err := s.Run(context.Background(), "approve",
+		strings.NewReader(credInput("https", "example.com", "", tokenUsername, "tok-4")),
+		io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	// get: request carries only host/path (typical non-interactive
+	// git), and the helper must complete the credential anew.
+	var out bytes.Buffer
+	err = s.Run(context.Background(), "get",
+		strings.NewReader(credInput("https", "example.com", "", "", "")),
+		&out, io.Discard)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	got, err := Read(&out)
+	if err != nil {
+		t.Fatalf("re-read helper output: %v", err)
+	}
+	if got.Username != tokenUsername || got.Password != "tok-4" {
+		t.Errorf("round trip = %+v, want username=%s password=tok-4", got, tokenUsername)
+	}
+}
+
 func TestGetSilentWhenNothingStored(t *testing.T) {
 	s := newShim(&fakeStore{m: map[string]string{}})
 	var out bytes.Buffer

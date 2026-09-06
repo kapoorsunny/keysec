@@ -48,6 +48,15 @@ func (s *Shim) Run(ctx context.Context, action string, stdin io.Reader, stdout, 
 	}
 }
 
+// tokenUsername is the conventional placeholder username hosted git
+// services accept next to a token used as the password. git treats a
+// credential with a password but no username as incomplete and falls
+// back to prompting — which kills non-interactive commands in scripts
+// and launchd jobs — so the shim completes the credential with this.
+// Neither GitHub nor GitLab ties personal-access tokens to a transport
+// username; both accept any non-empty value.
+const tokenUsername = "oauth2"
+
 // get answers a credential request: the stored password if there is
 // one, silence if there is not (git then falls back to its normal
 // flow).
@@ -64,6 +73,9 @@ func (s *Shim) get(ctx context.Context, cred Credential, name string, stdout io.
 		return err // e.g. locked keychain: fail loudly, do not guess
 	}
 	cred.Password = value
+	if cred.Username == "" {
+		cred.Username = tokenUsername
+	}
 	return cred.Write(stdout)
 }
 
