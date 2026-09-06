@@ -1,0 +1,64 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: build, release, update tap
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: go test ./...
+
+      - name: Cross-compile
+        run: |
+          GOOS=darwin GOARCH=arm64 go build -trimpath -o keysec .
+          mkdir -p dist/ARM64 && mv keysec dist/ARM64/
+          (cd dist/ARM64 && tar -czf ../keysec-aarch64-apple-darwin.tar.gz keysec)
+          GOOS=darwin GOARCH=amd64 go build -trimpath -o keysec .
+          mkdir -p dist/AMD64 && mv keysec dist/AMD64/
+          (cd dist/AMD64 && tar -czf ../keysec-x86_64-apple-darwin.tar.gz keysec)
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/keysec-aarch64-apple-darwin.tar.gz \
+            dist/keysec-x86_64-apple-darwin.tar.gz \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes
+
+      - name: Update homebrew-tap formula
+        if: ${{ secrets.HOMEBREW_TAP_PAT != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_PAT }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          tag="${GITHUB_REF_NAME}"
+          arm_sha="$(shasum -a 256 dist/keysec-aarch64-apple-darwin.tar.gz | awk '{print $1}')"
+          intel_sha="$(shasum -a 256 dist/keysec-x86_64-apple-darwin.tar.gz | awk '{print $1}')"
+
+          git config --global user.name "keysec release bot"
+          git config --global user.email "actions@github.com"
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/kapoorsunny/homebrew-tap.git"
+          cd homebrew-tap
+          cp "${GITHUB_WORKSPACE}/scripts/tap-formula.rb.tmpl" Formula/keysec.rb
+          perl -pi -e "s/VERSION/${version}/; s/ARM_SHA/${arm_sha}/; s/INTEL_SHA/${intel_sha}/; s/TAG/${tag}/g" Formula/keysec.rb
+          git add Formula/keysec.rb
+          git commit -m "keysec ${tag}"
+          git push
