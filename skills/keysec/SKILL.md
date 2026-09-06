@@ -19,7 +19,15 @@ to disk** — there is no index file, the Keychain is the only index
 
 ## Install
 
-If `command -v keysec` finds nothing, build it from this repo:
+Fastest on a machine with Homebrew:
+
+```bash
+brew tap kapoorsunny/tap
+brew trust kapoorsunny/tap      # one-time approval for this tap
+brew install keysec             # installed prebuilt macOS binary (arm64/amd64)
+```
+
+If `brew` isn't available, build from this repo:
 
 ```bash
 go build -o keysec .
