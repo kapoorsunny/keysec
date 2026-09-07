@@ -155,8 +155,9 @@ value — the secret's value itself lives only inside the Keychain.
 
 Every time `keysec run --env ...` injects a secret, it appends one record
 to an append-only handoff log: which key, which command, when. Each record
-locks in the one before it (a hash chain), so editing, reordering, or
-truncating the log is detected the next time it is read:
+locks in the one before it (a chain of HMACs, keyed by a separate Keychain
+entry), so editing, reordering, or truncating the log is detected the next
+time it is read:
 
 ```
 $ keysec runs
@@ -176,6 +177,12 @@ honest:
 3. **Clearing is deliberate.** `keysec runs --yes` wipes the log after
    you've reviewed the evidence (scripts: `keysec runs --yes --json`).
    It's the *only* way past a failed check.
+
+What this does and does not prove: the chain is keyed, so rewriting the log
+means also reading its MAC key (`keysec / .runlog.key`) — casual edits and
+corruption are caught. It is not proof against something already running as
+you with Keychain access, which could read both and re-seal a forged log.
+For a guarantee that survives that, ship the records off the machine.
 
 `--mask` is a transcript safety net for the same handoff: the child's
 stdout and stderr are scrubbed live, so secret *values* a script echoes

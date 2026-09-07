@@ -8,6 +8,8 @@ package runlog
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -56,9 +58,19 @@ type Entry struct {
 	Sha  string   `json:"sha"`
 }
 
+// chainVersion is the format of the links in a freshly written chain.
+// Version 1 was an unkeyed SHA-256 over fields joined by "|", which
+// both allowed forgery by anyone who could recompute a digest and made
+// distinct entries collide (a secret name moved from env onto the end
+// of cmd hashed identically). Version 2 is an HMAC over a canonical,
+// length-prefixed encoding. Logs written by v1 still verify under the
+// v1 rule, so upgrading keysec does not flag an honest log as tampered.
+const chainVersion = 2
+
 // Log is the on-disk document stored at the reserved account.
 type Log struct {
 	Seq     int     `json:"seq"`
+	Version int     `json:"version,omitempty"`
 	Entries []Entry `json:"entries"`
 }
 
@@ -79,25 +91,23 @@ func Append(ctx context.Context, rw ReadWriter, cmd string, env []string) (Entry
 	if tampered {
 		return Entry{}, ErrTampered
 	}
-
-	seq := len(existing) + 1
-	prev := ""
-	if n := len(existing); n > 0 {
-		prev = existing[n-1].Sha
+	mac, err := ensureMACKey(ctx, rw)
+	if err != nil {
+		return Entry{}, err
 	}
+
 	e := Entry{
-		Seq:  seq,
-		At:   time.Now().UTC().Format(time.RFC3339),
-		Cmd:  cmd,
-		Env:  keys,
-		Prev: prev,
+		At:  time.Now().UTC().Format(time.RFC3339),
+		Cmd: cmd,
+		Env: keys,
 	}
-	e.Sha = hashEntry(e.Prev, e.Seq, e.At, e.Cmd, e.Env)
+	entries := prune(append(append([]Entry(nil), existing...), e))
+	// Re-link the whole chain under the current version. The entries just
+	// verified, so re-sealing them is not a rewrite of history; it is what
+	// carries a v1 log forward and what re-bases a pruned one.
+	reseal(entries, mac)
 
-	entries := append(append([]Entry(nil), existing...), e)
-	entries = prune(entries)
-
-	log := Log{Seq: len(entries), Entries: entries}
+	log := Log{Seq: len(entries), Version: chainVersion, Entries: entries}
 	raw, err := json.Marshal(log)
 	if err != nil {
 		return Entry{}, err
@@ -105,7 +115,39 @@ func Append(ctx context.Context, rw ReadWriter, cmd string, env []string) (Entry
 	if err := rw.Put(ctx, key.ReservedService, key.ReservedRunLog, string(raw)); err != nil {
 		return Entry{}, err
 	}
-	return e, nil
+	return entries[len(entries)-1], nil
+}
+
+// ensureMACKey returns the log's MAC key, minting one on first use.
+func ensureMACKey(ctx context.Context, rw ReadWriter) ([]byte, error) {
+	mac, err := readMACKey(ctx, rw)
+	if err == nil {
+		return mac, nil
+	}
+	if !errors.Is(err, keychain.ErrNotFound) {
+		return nil, err
+	}
+	fresh := make([]byte, 32)
+	if _, err := rand.Read(fresh); err != nil {
+		return nil, fmt.Errorf("run log key: %w", err)
+	}
+	if err := rw.Put(ctx, key.ReservedService, key.ReservedRunLogKey, hex.EncodeToString(fresh)); err != nil {
+		return nil, err
+	}
+	return fresh, nil
+}
+
+// readMACKey loads the MAC key without creating one.
+func readMACKey(ctx context.Context, rw ReadWriter) ([]byte, error) {
+	raw, err := rw.Get(ctx, key.ReservedService, key.ReservedRunLogKey)
+	if err != nil {
+		return nil, err
+	}
+	mac, err := hex.DecodeString(raw)
+	if err != nil || len(mac) == 0 {
+		return nil, fmt.Errorf("run log key is corrupted")
+	}
+	return mac, nil
 }
 
 // Load reads and verifies the log. A log that has never been written
@@ -124,7 +166,19 @@ func Load(ctx context.Context, rw ReadWriter) (entries []Entry, tampered bool, e
 	if err := json.Unmarshal([]byte(raw), &log); err != nil {
 		return nil, false, fmt.Errorf("run log is corrupted: %w", err)
 	}
-	return log.Entries, !verify(log.Entries), nil
+	var mac []byte
+	if log.Version >= 2 {
+		mac, err = readMACKey(ctx, rw)
+		if err != nil {
+			if errors.Is(err, keychain.ErrNotFound) {
+				// A sealed log whose key is gone can no longer be proven
+				// honest. Report it as tampered rather than trusting it.
+				return log.Entries, true, nil
+			}
+			return nil, false, err
+		}
+	}
+	return log.Entries, !verify(log.Entries, log.Version, mac), nil
 }
 
 // Reset clears the run log entirely by removing its reserved Keychain
@@ -142,8 +196,9 @@ func Reset(ctx context.Context, dw Deleter) error {
 // verify walks the chain and reports whether every entry is consistent:
 // sequence numbers count up from 1, each Prev equals the previous
 // entry's Sha (except the head), and each stored Sha matches a fresh
-// hash of its own fields.
-func verify(entries []Entry) bool {
+// seal over its own fields. version selects the sealing rule so a log
+// written by an older keysec still verifies.
+func verify(entries []Entry, version int, mac []byte) bool {
 	var prevSha string
 	for i, e := range entries {
 		if e.Seq != i+1 {
@@ -152,12 +207,32 @@ func verify(entries []Entry) bool {
 		if e.Prev != prevSha {
 			return false
 		}
-		if e.Sha != hashEntry(e.Prev, e.Seq, e.At, e.Cmd, e.Env) {
+		if !hmac.Equal([]byte(e.Sha), []byte(sealEntry(version, mac, e))) {
 			return false
 		}
 		prevSha = e.Sha
 	}
 	return true
+}
+
+// sealEntry produces an entry's link under the given chain version.
+func sealEntry(version int, mac []byte, e Entry) string {
+	if version >= 2 {
+		return hashEntryV2(mac, e.Prev, e.Seq, e.At, e.Cmd, e.Env)
+	}
+	return hashEntryV1(e.Prev, e.Seq, e.At, e.Cmd, e.Env)
+}
+
+// reseal re-numbers and re-links entries in place under the current
+// chain version, so the result is a valid standalone chain.
+func reseal(entries []Entry, mac []byte) {
+	prev := ""
+	for i := range entries {
+		entries[i].Seq = i + 1
+		entries[i].Prev = prev
+		entries[i].Sha = hashEntryV2(mac, prev, entries[i].Seq, entries[i].At, entries[i].Cmd, entries[i].Env)
+		prev = entries[i].Sha
+	}
 }
 
 // dedupe removes adjacent duplicates from a sorted slice.
@@ -171,29 +246,44 @@ func dedupe(keys []string) []string {
 	return uniq
 }
 
-// prune keeps at most maxEntries records. When it trims the head of the
-// chain, the surviving tail is re-based: Seqs restart at 1 and the new
-// head's Prev is cleared, so the result is a valid standalone chain. It
-// is only ever called on a chain that Load already verified.
+// prune keeps at most maxEntries records, dropping the oldest. The
+// caller reseals the survivors, which re-bases the chain. It is only
+// ever called on a chain that Load already verified.
 func prune(entries []Entry) []Entry {
 	if len(entries) <= maxEntries {
 		return entries
 	}
-	kept := append([]Entry(nil), entries[len(entries)-maxEntries:]...)
-	prev := ""
-	for i := range kept {
-		kept[i].Seq = i + 1
-		kept[i].Prev = prev
-		kept[i].Sha = hashEntry(kept[i].Prev, kept[i].Seq, kept[i].At, kept[i].Cmd, kept[i].Env)
-		prev = kept[i].Sha
-	}
-	return kept
+	return append([]Entry(nil), entries[len(entries)-maxEntries:]...)
 }
 
-// hashEntry derives an entry's fingerprint from its fields and the
-// previous entry's hash. Every field participates, so any edit to a
-// stored entry breaks the chain at its own link.
-func hashEntry(prev string, seq int, at, cmd string, env []string) string {
+// hashEntryV2 seals an entry with an HMAC over a canonical encoding.
+//
+// Every field is length-prefixed, so no two different entries can
+// produce the same input: with a bare "|" separator, a secret name
+// moved from env onto the end of cmd hashed identically, which let the
+// record of which secrets a run received be rewritten undetected.
+func hashEntryV2(mac []byte, prev string, seq int, at, cmd string, env []string) string {
+	h := hmac.New(sha256.New, mac)
+	field := func(s string) {
+		io.WriteString(h, strconv.Itoa(len(s)))
+		io.WriteString(h, ":")
+		io.WriteString(h, s)
+	}
+	field(prev)
+	field(strconv.Itoa(seq))
+	field(at)
+	field(cmd)
+	field(strconv.Itoa(len(env)))
+	for _, k := range env {
+		field(k)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// hashEntryV1 is the original unkeyed, unframed digest. It exists only
+// so a log written by an earlier keysec still verifies on first read;
+// nothing writes it any more.
+func hashEntryV1(prev string, seq int, at, cmd string, env []string) string {
 	h := sha256.New()
 	io.WriteString(h, prev)
 	io.WriteString(h, "|"+strconv.Itoa(seq))

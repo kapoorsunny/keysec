@@ -45,8 +45,9 @@ Run (inject secrets into one command only)
     keysec run --env TOKEN=mytoken -- some-tool --json --verbose
 
   run hands over only the keys you name: wildcards are refused, and
-  every secret-bearing run is recorded in an append-only, tamper-evident
-  log ("keysec runs"). If the log has been modified or cannot be written,
+  every secret-bearing run is recorded in an append-only log sealed with
+  a keyed hash chain ("keysec runs"). If the log has been modified or
+  cannot be written,
   run refuses to start. After reviewing the evidence, clear a corrupted
   log deliberately with "keysec runs --yes". With --mask, secret values a
   script prints are replaced by "***" in the child's output:

@@ -23,6 +23,11 @@ const ReservedSuffix = ".rotator"
 // "keysec run". It is a keysec-internal overlay entry, never a user key.
 const ReservedRunLog = ".runlog"
 
+// ReservedRunLogKey is the account holding the MAC key that seals the
+// handoff log. Keeping it out of the log document means rewriting the
+// log is not enough to forge it — the key has to be read too.
+const ReservedRunLogKey = ".runlog.key"
+
 // ErrInvalid is returned for names that are not valid key names.
 var ErrInvalid = errors.New("invalid key name")
 
@@ -78,9 +83,10 @@ func IsCompanion(account string) bool {
 }
 
 // IsReserved reports whether account is a keysec-internal overlay entry
-// (a rotator companion or the run log) rather than a user key.
+// (a rotator companion, the run log, or its MAC key) rather than a user
+// key.
 func IsReserved(account string) bool {
-	return IsCompanion(account) || account == ReservedRunLog
+	return IsCompanion(account) || account == ReservedRunLog || account == ReservedRunLogKey
 }
 
 // CompanionName is the account of the companion entry holding the rotator
