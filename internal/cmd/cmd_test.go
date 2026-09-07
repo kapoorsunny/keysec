@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/kapoorsunny/keysec/internal/keychain"
+	"github.com/kapoorsunny/keysec/internal/machine"
 	"github.com/kapoorsunny/keysec/internal/ui"
 )
 
@@ -514,5 +515,53 @@ func TestRotatorFlagEmptyValue(t *testing.T) {
 	}
 	if len(positional) != 1 || positional[0] != "mykey" {
 		t.Errorf("positional = %v, want [mykey]", positional)
+	}
+}
+
+// TestVersionReports checks the command renders in both modes. The
+// version string itself depends on how the test binary was built, so
+// the assertion is on shape, not on a literal number.
+func TestVersionReports(t *testing.T) {
+	ta := newTestApp(t)
+	if err := ta.app.Version(context.Background(), nil); err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	if !strings.HasPrefix(ta.stdout.String(), "keysec ") {
+		t.Errorf("human output = %q", ta.stdout.String())
+	}
+
+	tj := newTestApp(t)
+	tj.app.ui.SetJSON(true)
+	if err := tj.app.Version(context.Background(), nil); err != nil {
+		t.Fatalf("version --json: %v", err)
+	}
+	var b machine.BuildInfo
+	if err := json.Unmarshal(tj.stdout.Bytes(), &b); err != nil {
+		t.Fatalf("json: %v (%s)", err, tj.stdout.String())
+	}
+	if b.Version == "" || b.Go == "" || b.OS == "" || b.Arch == "" {
+		t.Errorf("incomplete build info: %+v", b)
+	}
+}
+
+// TestVersionRoutes covers both spellings through the real dispatcher,
+// since "--version" previously fell through to "unknown command".
+func TestVersionRoutes(t *testing.T) {
+	for _, arg := range []string{"version", "--version"} {
+		ta := newTestApp(t)
+		if code := ta.app.Execute(context.Background(), []string{arg}); code != 0 {
+			t.Errorf("%q exited %d: %s", arg, code, ta.stderr.String())
+		}
+		if !strings.Contains(ta.stdout.String(), "keysec ") {
+			t.Errorf("%q printed %q", arg, ta.stdout.String())
+		}
+	}
+}
+
+// TestVersionRejectsArgs keeps it consistent with the other commands.
+func TestVersionRejectsArgs(t *testing.T) {
+	ta := newTestApp(t)
+	if err := ta.app.Version(context.Background(), []string{"extra"}); err == nil {
+		t.Error("version with an argument should be a usage error")
 	}
 }

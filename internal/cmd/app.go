@@ -81,6 +81,8 @@ func (a *App) Execute(ctx context.Context, args []string) int {
 		run = a.Runs
 	case "doctor":
 		run = a.Doctor
+	case "version", "--version":
+		run = a.Version
 	case "git-credential":
 		// Speaks git's own protocol; --json is irrelevant and already
 		// stripped, so it is deliberately left unaffected by mode.
@@ -89,7 +91,7 @@ func (a *App) Execute(ctx context.Context, args []string) int {
 		Help(a.ui)
 		return 0
 	default:
-		e := machine.Usage("unknown command '"+cmd+"'", "available: run, set, get, update, rm, list, rotate, rotator, audit, runs, doctor, git-credential, help")
+		e := machine.Usage("unknown command '"+cmd+"'", "available: run, set, get, update, rm, list, rotate, rotator, audit, runs, doctor, version, git-credential, help")
 		a.renderError(e)
 		return e.ExitCode()
 	}

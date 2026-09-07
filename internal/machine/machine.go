@@ -85,6 +85,18 @@ func RotationConfig(keyName, message string) *Error {
 	return &Error{Kind: KindRotation, Key: keyName, Hint: "fix the spec with 'keysec rotator set " + keyName + " ...'", Message: message}
 }
 
+// BuildInfo is the machine form of "version". Version is "unknown" for
+// a binary carrying no stamped version; Revision and Modified describe
+// the source it was built from, when the toolchain recorded them.
+type BuildInfo struct {
+	Version  string `json:"version"`
+	Revision string `json:"revision,omitempty"`
+	Modified bool   `json:"modified,omitempty"`
+	Go       string `json:"go"`
+	OS       string `json:"os"`
+	Arch     string `json:"arch"`
+}
+
 // Value is the machine form of "get".
 type Value struct {
 	Name  string `json:"name"`
