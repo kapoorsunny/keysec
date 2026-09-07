@@ -430,3 +430,89 @@ func TestGitCredentialUnaffectedByJSON(t *testing.T) {
 		t.Errorf("git approve stored %q, want 'p q'", got)
 	}
 }
+
+// seedRotatable stores a key with a generate rotator, optionally with a
+// recorded expiry, so sweep filtering can be exercised.
+func (ta *testApp) seedRotatable(t *testing.T, name, expiresAt string) {
+	t.Helper()
+	ta.store.m[ta.store.sk("keysec", name)] = "current-value"
+	spec := `{"kind":"generate","length":8`
+	if expiresAt != "" {
+		spec += `,"expires_at":"` + expiresAt + `"`
+	}
+	spec += `}`
+	ta.store.m[ta.store.sk("keysec", name+".rotator")] = spec
+}
+
+// TestRotateAllDueFiltersByExpiry is the documented sweep. The gate used
+// to be "if !all", so passing --all disabled --due entirely and every
+// key with a rotator was rotated — mass-replacing healthy credentials.
+func TestRotateAllDueFiltersByExpiry(t *testing.T) {
+	ta := newTestApp(t)
+	ta.seedRotatable(t, "past", "2000-01-01T00:00:00Z")
+	ta.seedRotatable(t, "future", "2100-01-01T00:00:00Z")
+	ta.seedRotatable(t, "noexpiry", "")
+
+	before := map[string]string{}
+	for _, n := range []string{"past", "future", "noexpiry"} {
+		before[n] = ta.store.m[ta.store.sk("keysec", n)]
+	}
+	if err := ta.app.Rotate(context.Background(), []string{"--all", "--due"}); err != nil {
+		t.Fatalf("rotate --all --due: %v", err)
+	}
+	if got := ta.store.m[ta.store.sk("keysec", "past")]; got == before["past"] {
+		t.Error("the expired key should have been rotated")
+	}
+	for _, n := range []string{"future", "noexpiry"} {
+		if got := ta.store.m[ta.store.sk("keysec", n)]; got != before[n] {
+			t.Errorf("%q is not due and must not be rotated", n)
+		}
+	}
+}
+
+// TestRotateAllWithoutDueTakesEverything keeps the other half honest.
+func TestRotateAllWithoutDueTakesEverything(t *testing.T) {
+	ta := newTestApp(t)
+	ta.seedRotatable(t, "future", "2100-01-01T00:00:00Z")
+	before := ta.store.m[ta.store.sk("keysec", "future")]
+	if err := ta.app.Rotate(context.Background(), []string{"--all"}); err != nil {
+		t.Fatalf("rotate --all: %v", err)
+	}
+	if ta.store.m[ta.store.sk("keysec", "future")] == before {
+		t.Error("--all on its own should rotate every key with a rotator")
+	}
+}
+
+// TestLeadingJSONBeforeRun: "--json" is documented as accepted anywhere,
+// but run is dispatched before flag stripping, so a leading --json used
+// to fall through to the switch and die with "unknown command 'run'".
+func TestLeadingJSONBeforeRun(t *testing.T) {
+	ta := newTestApp(t)
+	ta.store.m[ta.store.sk("keysec", "tok")] = "s3cret"
+	code := ta.app.Execute(context.Background(), []string{"--json", "run", "--env", "T=tok", "true"})
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, ta.stderr.String())
+	}
+	if strings.Contains(ta.stderr.String(), "unknown command") {
+		t.Errorf("run was not recognised: %s", ta.stderr.String())
+	}
+}
+
+// TestRotatorFlagEmptyValue: "--flag=" is an explicit empty value and
+// the only way to clear a field. Treating it as "value missing" ate the
+// next argument and silently misparsed the rest of the line.
+func TestRotatorFlagEmptyValue(t *testing.T) {
+	flags, positional, _, err := parseRotatorFlags([]string{"mykey", "--auth-key=", "--kind", "generate"})
+	if err != nil {
+		t.Fatalf("parseRotatorFlags: %v", err)
+	}
+	if got, ok := flags["--auth-key"]; !ok || got != "" {
+		t.Errorf("--auth-key = %q (present=%v), want an empty value", got, ok)
+	}
+	if flags["--kind"] != "generate" {
+		t.Errorf("--kind = %q, want generate", flags["--kind"])
+	}
+	if len(positional) != 1 || positional[0] != "mykey" {
+		t.Errorf("positional = %v, want [mykey]", positional)
+	}
+}

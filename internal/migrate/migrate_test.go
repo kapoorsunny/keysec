@@ -108,8 +108,40 @@ func TestRunMovesDottedSkipsDotlessAndRotator(t *testing.T) {
 	if _, ok := store.m[kv("git", "gitlab.example.com.root.keysec")]; ok {
 		t.Error("old location should have been deleted")
 	}
+	// "thing.rotator" cannot be represented in v0.2, so its secret stays
+	// at the v0.1 coordinates and this file is the only map to it.
+	if sum.FileRemoved {
+		t.Error("keys.json must survive while a skipped secret is stranded")
+	}
+}
+
+// TestRunRemovesIndexWhenNoSecretIsStranded covers the other half: skips
+// that leave nothing behind must not keep the index alive forever.
+func TestRunRemovesIndexWhenNoSecretIsStranded(t *testing.T) {
+	withHome(t)
+	store := newFakeStore(map[string]string{
+		kv("a", "b"):            "v",
+		kv("keysec", "already"): "here",
+	})
+	writeLegacy(t, `[
+		{"name":"a.b"},
+		{"name":"already"},
+		{"name":"gone.away"}
+	]`)
+	sum, err := Run(context.Background(), store, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sum.Skipped) != 2 {
+		t.Fatalf("skipped = %+v, want the already-present and missing entries", sum.Skipped)
+	}
+	for _, sk := range sum.Skipped {
+		if sk.Stranded {
+			t.Errorf("skip %q should not be stranded: %s", sk.Name, sk.Reason)
+		}
+	}
 	if !sum.FileRemoved {
-		t.Error("keys.json should be removed after a clean migration")
+		t.Error("keys.json should go once nothing is stranded")
 	}
 }
 

@@ -23,7 +23,9 @@ func TestValidate(t *testing.T) {
 		{&Spec{Kind: KindHTTP, URL: "x", Auth: "basic:"}, true},
 		{&Spec{Kind: KindScript}, true},                   // no script/body
 		{&Spec{Kind: KindScript, Body: "echo hi"}, false}, //
-		{&Spec{Kind: KindGenerate, Length: 0}, true},      // length must be >= 1
+		{&Spec{Kind: KindGenerate, Length: 0}, false},     // unset length means the default 32
+		{&Spec{Kind: KindGenerate, Length: -1}, true},     // but not a negative one
+		{&Spec{Kind: KindGenerate, Length: 500000000}, true},
 		{&Spec{Kind: KindGenerate, Length: 16, Charset: "ab"}, false},
 		{&Spec{Kind: KindGenerate, Length: 16, Charset: strings.Repeat("a", 300)}, true},
 		{&Spec{Kind: KindGenerate, Length: 4, Charset: strings.Repeat("é", 256)}, false}, // bytes double the runes
@@ -162,5 +164,18 @@ func TestParseExpiryRejectsPartialNumbers(t *testing.T) {
 		if _, err := ParseExpiry(s); err == nil {
 			t.Errorf("ParseExpiry(%q) succeeded, want an error", s)
 		}
+	}
+}
+
+// TestRenderTemplateIsLiteral: a secret is arbitrary text, and regexp
+// replacement would read "$1" or "${x}" inside it as a capture
+// reference and silently drop it before the value ever reached the
+// rotation endpoint.
+func TestRenderTemplateIsLiteral(t *testing.T) {
+	in := Input{Key: "k$1", Value: `abc$1def${x}g$$h`, Meta: map[string]string{"m": "v$1"}}
+	got := RenderTemplate(`{"token":"{value}","key":"{key}","m":"{meta.m}"}`, in)
+	want := `{"token":"abc$1def${x}g$$h","key":"k$1","m":"v$1"}`
+	if got != want {
+		t.Errorf("RenderTemplate\n got %s\nwant %s", got, want)
 	}
 }

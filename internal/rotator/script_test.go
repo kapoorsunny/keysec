@@ -97,3 +97,24 @@ func TestScriptEmptyOutput(t *testing.T) {
 		t.Fatal("empty output should error")
 	}
 }
+
+// TestParseScriptOutputHoldsJSONToTheContract: a script that correctly
+// reports it got nothing used to fall through to the lenient branch,
+// storing the JSON text itself over the live credential.
+func TestParseScriptOutputHoldsJSONToTheContract(t *testing.T) {
+	for _, out := range []string{`{"value":""}`, `{"old_valid_until":"2030-01-01"}`, `{"meta":{}}`} {
+		res, err := parseScriptOutput(out)
+		if err == nil {
+			t.Errorf("parseScriptOutput(%s) = %q, want an error", out, res.Value)
+		}
+	}
+	// A JSON object that is not the contract is still a plain value.
+	res, err := parseScriptOutput(`{"unrelated":1}`)
+	if err != nil || res.Value != `{"unrelated":1}` {
+		t.Errorf("non-contract JSON should pass through: %q, %v", res.Value, err)
+	}
+	res, err = parseScriptOutput(`{"value":"tok","expires_at":"2030-01-01"}`)
+	if err != nil || res.Value != "tok" || res.ExpiresAt == nil {
+		t.Errorf("contract JSON: %+v, %v", res, err)
+	}
+}

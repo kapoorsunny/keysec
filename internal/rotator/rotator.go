@@ -32,6 +32,12 @@ const (
 // Kinds lists every rotator kind keysec knows, for help and validation.
 var Kinds = []string{KindGenerate, KindHTTP, KindScript, KindVendorGithub, KindVendorGitlab, KindVendorCloudflare}
 
+// maxGenerateLength bounds the generate kind. Without a ceiling a typo
+// ("--length 500000000") turns into a multi-gigabyte allocation and
+// hundreds of millions of crypto/rand reads; no real secret is longer
+// than this, and values over ~2KB lose the argv-free write path.
+const maxGenerateLength = 4096
+
 // Input carries everything a provider needs to rotate one secret.
 type Input struct {
 	Key        string            // friendly key name being rotated
@@ -161,8 +167,14 @@ func (s *Spec) Validate() error {
 	}
 	switch s.Kind {
 	case KindGenerate:
-		if s.Length < 1 {
-			return fmt.Errorf("generate rotator needs a length of at least 1")
+		// Length is optional: unset means the documented default of 32,
+		// applied by the generator. Rejecting 0 here made that default
+		// unreachable and refused "rotator set <key> --kind generate".
+		if s.Length < 0 {
+			return fmt.Errorf("length cannot be negative")
+		}
+		if s.Length > maxGenerateLength {
+			return fmt.Errorf("length must be at most %d", maxGenerateLength)
 		}
 		if utf8.RuneCountInString(s.Charset) > 256 {
 			return fmt.Errorf("charset must be at most 256 characters")
@@ -234,9 +246,14 @@ var valueRe = regexp.MustCompile(`\{value\}`)
 // RenderTemplate substitutes {key}, {value} and {meta.<K>} in a string.
 // Unknown placeholders (a meta key the input does not carry, or any
 // other brace token) are left untouched.
+//
+// Substitution is literal throughout: a secret is arbitrary text, and
+// ReplaceAllString would read a "$1" or "$name" inside it as a capture
+// reference and silently drop it. ReplaceAllStringFunc (used for meta)
+// already returns its result verbatim.
 func RenderTemplate(tpl string, in Input) string {
-	out := keyRe.ReplaceAllString(tpl, in.Key)
-	out = valueRe.ReplaceAllString(out, in.Value)
+	out := keyRe.ReplaceAllLiteralString(tpl, in.Key)
+	out = valueRe.ReplaceAllLiteralString(out, in.Value)
 	return metaKeyRe.ReplaceAllStringFunc(out, func(m string) string {
 		match := metaKeyRe.FindStringSubmatch(m)
 		if v, ok := in.Meta[match[1]]; ok {

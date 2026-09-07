@@ -29,9 +29,16 @@ func (h *httpRotator) Rotate(ctx context.Context, in Input) (Result, error) {
 		method = http.MethodPost
 	}
 	url := RenderTemplate(spec.URL, in)
-	req, err := http.NewRequestWithContext(ctx, method, url, nil)
+	var reqBody io.Reader
+	if spec.Body != "" {
+		reqBody = strings.NewReader(RenderTemplate(spec.Body, in))
+	}
+	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
 	if err != nil {
 		return Result{}, errf("invalid url: %v", err)
+	}
+	if reqBody != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	if err := applyHTTPAuth(req, spec.Auth, in.Credential); err != nil {
 		return Result{}, err

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -170,5 +171,35 @@ func TestHTTPValuePathNotString(t *testing.T) {
 	r, _ := New(&Spec{Kind: KindHTTP, URL: srv.URL, Value: "v"})
 	if _, err := r.Rotate(context.Background(), Input{}); err == nil {
 		t.Fatal("numeric value should error")
+	}
+}
+
+// TestHTTPSendsBody: --body is accepted, stored and documented for the
+// http kind, but the request used to be built with a nil body.
+func TestHTTPSendsBody(t *testing.T) {
+	var gotBody, gotType string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody, gotType = string(b), r.Header.Get("Content-Type")
+		w.Write([]byte(`{"token":"new-value"}`))
+	}))
+	defer srv.Close()
+	r, err := New(&Spec{Kind: KindHTTP, URL: srv.URL, Value: "token",
+		Body: `{"key":"{key}","old":"{value}"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := r.Rotate(context.Background(), Input{Key: "k", Value: "old-secret"})
+	if err != nil {
+		t.Fatalf("Rotate: %v", err)
+	}
+	if res.Value != "new-value" {
+		t.Errorf("value = %q", res.Value)
+	}
+	if gotBody != `{"key":"k","old":"old-secret"}` {
+		t.Errorf("body = %q", gotBody)
+	}
+	if gotType != "application/json" {
+		t.Errorf("content-type = %q", gotType)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strconv"
@@ -95,6 +96,15 @@ func specRows(s *rotator.Spec) [][]string {
 	add("new_expires", s.NewExpires)
 	add("grace", s.Grace)
 	add("script", s.Script)
+	// An inline body is often a whole script; show enough to confirm it is
+	// set and which one it is, since otherwise it is invisible here.
+	if s.Body != "" {
+		first, _, more := strings.Cut(s.Body, "\n")
+		if more {
+			first += " …"
+		}
+		add("body", fmt.Sprintf("%s  (%d bytes)", first, len(s.Body)))
+	}
 	add("interpreter", s.Interpreter)
 	add("timeout", s.Timeout)
 	for _, mk := range sortedKeys(s.Meta) {
@@ -199,7 +209,13 @@ func (a *App) rotatorSet(ctx context.Context, args []string) error {
 		set["body"] = true
 	}
 	if v, ok := flags["--body-file"]; ok {
-		b, err := os.ReadFile(v)
+		var b []byte
+		var err error
+		if v == "-" {
+			b, err = io.ReadAll(a.stdin)
+		} else {
+			b, err = os.ReadFile(v)
+		}
 		if err != nil {
 			return machine.IO(err.Error())
 		}
@@ -270,12 +286,17 @@ func parseRotatorFlags(args []string) (flags map[string]string, positional, meta
 			positional = append(positional, arg)
 			continue
 		}
+		// "--flag=" carries an explicit empty value (the only way to clear
+		// a field); "--flag" takes the next argument. Telling them apart
+		// by whether the value is empty would swallow the following
+		// argument and silently misparse the rest of the line.
 		name, val := arg, ""
+		inline := false
 		if eq := strings.IndexByte(arg, '='); eq >= 0 {
-			name, val = arg[:eq], arg[eq+1:]
+			name, val, inline = arg[:eq], arg[eq+1:], true
 		}
 		if name == "--meta" {
-			if val == "" {
+			if !inline {
 				i++
 				if i >= len(args) {
 					return nil, nil, nil, machine.Usage("--meta needs key=value", "")
@@ -285,7 +306,7 @@ func parseRotatorFlags(args []string) (flags map[string]string, positional, meta
 			metas = append(metas, val)
 			continue
 		}
-		if val == "" {
+		if !inline {
 			i++
 			if i >= len(args) {
 				return nil, nil, nil, machine.Usage("flag "+name+" needs a value", "")

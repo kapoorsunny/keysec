@@ -40,7 +40,9 @@ func (a *App) Doctor(ctx context.Context, args []string) error {
 func (a *App) doctorHealth(ctx context.Context) error {
 	entries, err := a.enum.List(ctx)
 	if err != nil {
-		return err
+		// Diagnosing a locked keychain is this command's whole job, so it
+		// must report the locked kind and its unlock hint, not "internal".
+		return a.enumError(err)
 	}
 	var keys, rotators []string
 	isParent := map[string]bool{}
@@ -129,6 +131,9 @@ func (a *App) doctorMigrate(ctx context.Context, yes bool) error {
 	}
 	if sum.FileRemoved {
 		a.ui.Success("removed the legacy index file")
+	} else if sum.HasStranded() {
+		a.ui.Hint("kept the legacy index: it is the only record of where the skipped secrets are stored")
+		a.ui.Hint("save each one under a valid name, then delete the index by hand")
 	}
 	return nil
 }

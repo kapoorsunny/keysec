@@ -24,10 +24,14 @@ type Output struct {
 }
 
 // New returns an Output writing to the given writers. Color is enabled
-// only when stdout is an interactive terminal.
+// only when stderr is an interactive terminal: every decorated line
+// (Success, Fail) goes to stderr, while stdout carries plain data.
+// Probing stdout instead would strip color from messages the user is
+// watching whenever data is piped, and write escape codes into a
+// redirected stderr log.
 func New(stdout, stderr io.Writer) *Output {
 	color := false
-	if f, ok := stdout.(*os.File); ok {
+	if f, ok := stderr.(*os.File); ok {
 		color = term.IsTerminal(int(f.Fd()))
 	}
 	return &Output{stdout: stdout, stderr: stderr, color: color}

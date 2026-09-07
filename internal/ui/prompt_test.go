@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"bytes"
 	"errors"
 	"strings"
 	"testing"
@@ -55,5 +56,22 @@ func TestHiddenEmptyInput(t *testing.T) {
 	p := NewPrompts(strings.NewReader(""), &strings.Builder{})
 	if _, err := p.Hidden("  value: "); err == nil {
 		t.Error("Hidden with no input should error")
+	}
+}
+
+// TestColorFollowsStderr: every decorated line (Success, Fail) is
+// written to stderr, so probing stdout meant colour appeared exactly
+// when it should not and vanished when it should.
+func TestColorFollowsStderr(t *testing.T) {
+	// Neither writer is a terminal, so colour must be off and no escape
+	// codes may reach a redirected stderr.
+	var out, errb bytes.Buffer
+	o := New(&out, &errb)
+	o.Success("saved '%s'", "k")
+	if strings.Contains(errb.String(), "\x1b[") {
+		t.Errorf("escape codes written to a non-terminal stderr: %q", errb.String())
+	}
+	if out.Len() != 0 {
+		t.Errorf("Success must not write to stdout, got %q", out.String())
 	}
 }

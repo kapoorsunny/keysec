@@ -45,10 +45,24 @@ type Summary struct {
 	FileRemoved bool
 }
 
-// Skip is one legacy entry that was left in place.
+// Skip is one legacy entry that was left in place. Stranded marks the
+// skips that matter for cleanup: the secret is still sitting at its
+// v0.1 coordinates and this index is the only record of where.
 type Skip struct {
-	Name   string
-	Reason string
+	Name     string
+	Reason   string
+	Stranded bool
+}
+
+// HasStranded reports whether any skip left a secret behind at its v0.1
+// coordinates, which is what keeps the legacy index alive.
+func (s *Summary) HasStranded() bool {
+	for _, sk := range s.Skipped {
+		if sk.Stranded {
+			return true
+		}
+	}
+	return false
 }
 
 // Path resolves the legacy index location: $KEYSEC_HOME/keys.json, or
@@ -117,24 +131,24 @@ func Run(ctx context.Context, store keychain.Store, warn func(string)) (*Summary
 	sum := &Summary{}
 	for _, e := range entries {
 		if strings.HasSuffix(e.Name, key.ReservedSuffix) {
-			sum.Skipped = append(sum.Skipped, Skip{e.Name, "ends in .rotator (reserved in v0.2)"})
+			sum.Skipped = append(sum.Skipped, Skip{e.Name, "ends in .rotator (reserved in v0.2)", true})
 			continue
 		}
 		oldSvc, oldAcct := v01Coordinates(e.Name)
 		k, err := key.Parse(e.Name)
 		if err != nil {
-			sum.Skipped = append(sum.Skipped, Skip{e.Name, "no longer a valid key name: " + err.Error()})
+			sum.Skipped = append(sum.Skipped, Skip{e.Name, "no longer a valid key name: " + err.Error(), true})
 			continue
 		}
 		if exists, err := store.Has(ctx, k.Service, k.Account); err != nil {
 			return sum, err
 		} else if exists {
-			sum.Skipped = append(sum.Skipped, Skip{e.Name, "already present at its v0.2 location"})
+			sum.Skipped = append(sum.Skipped, Skip{e.Name, "already present at its v0.2 location", false})
 			continue
 		}
 		value, err := store.Get(ctx, oldSvc, oldAcct)
 		if errors.Is(err, keychain.ErrNotFound) {
-			sum.Skipped = append(sum.Skipped, Skip{e.Name, "secret missing from the keychain"})
+			sum.Skipped = append(sum.Skipped, Skip{e.Name, "secret missing from the keychain", false})
 			continue
 		}
 		if err != nil {
@@ -152,6 +166,13 @@ func Run(ctx context.Context, store keychain.Store, warn func(string)) (*Summary
 	p, err := Path()
 	if err != nil {
 		return sum, err
+	}
+	if sum.HasStranded() {
+		// The secret behind a stranded skip is still at its v0.1
+		// coordinates, and this file is the only record of where. Deleting
+		// it now would leave the secret in the Keychain with nothing left
+		// to say which key it belonged to.
+		return sum, nil
 	}
 	if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return sum, fmt.Errorf("cannot remove the legacy index at %s: %v", p, err)

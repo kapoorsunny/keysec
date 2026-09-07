@@ -62,8 +62,14 @@ func (s *scriptRotator) Rotate(ctx context.Context, in Input) (Result, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	// Start in this goroutine so cmd.Process is set before the timeout
+	// branch below can read it: Run() would assign it from the watcher
+	// goroutine, racing the kill and sometimes skipping it entirely.
+	if err := cmd.Start(); err != nil {
+		return Result{}, errf("script failed to start: %v", err)
+	}
 	done := make(chan error, 1)
-	go func() { done <- cmd.Run() }()
+	go func() { done <- cmd.Wait() }()
 	select {
 	case err := <-done:
 		if err == nil {
@@ -97,26 +103,54 @@ type scriptResult struct {
 // parseScriptOutput reads the lenient script contract: a JSON object
 // with a "value" field (plus optional expiry/meta), or, failing that,
 // the trimmed stdout as the new value.
+//
+// A reply that is recognisably the JSON contract is held to it. Judging
+// that by whether a field came back non-empty would let {"value": ""} —
+// a script correctly reporting it got nothing — fall through to the
+// lenient branch and store the JSON text itself over the live secret.
 func parseScriptOutput(out string) (Result, error) {
 	trimmed := strings.TrimSpace(out)
 	if trimmed == "" {
 		return Result{}, errf("script produced no output")
 	}
-	var sr scriptResult
-	if json.Unmarshal([]byte(trimmed), &sr) == nil && (sr.Value != "" || sr.ExpiresAt != "" || sr.Meta != nil) {
-		expires, err := ParseExpiry(sr.ExpiresAt)
-		if err != nil {
-			return Result{}, errf("script expiry: %v", err)
-		}
-		old, err := ParseExpiry(sr.OldValidUntil)
-		if err != nil {
-			return Result{}, errf("script old_valid_until: %v", err)
-		}
-		if sr.Value == "" {
-			return Result{}, errf("script JSON has no value")
-		}
-		return Result{Value: sr.Value, ExpiresAt: expires, OldValidUntil: old}, nil
+	if !isContractJSON(trimmed) {
+		// Lenient fallback: whole trimmed stdout is the new value.
+		return Result{Value: trimmed}, nil
 	}
-	// Lenient fallback: whole trimmed stdout is the new value.
-	return Result{Value: trimmed}, nil
+	var sr scriptResult
+	if err := json.Unmarshal([]byte(trimmed), &sr); err != nil {
+		return Result{}, errf("script JSON: %v", err)
+	}
+	expires, err := ParseExpiry(sr.ExpiresAt)
+	if err != nil {
+		return Result{}, errf("script expiry: %v", err)
+	}
+	old, err := ParseExpiry(sr.OldValidUntil)
+	if err != nil {
+		return Result{}, errf("script old_valid_until: %v", err)
+	}
+	if sr.Value == "" {
+		return Result{}, errf("script JSON has no value")
+	}
+	return Result{Value: sr.Value, ExpiresAt: expires, OldValidUntil: old}, nil
+}
+
+// isContractJSON reports whether out is a JSON object carrying at least
+// one field of the script contract. Anything else — including a JSON
+// object that happens to be the secret itself — is treated as a raw
+// value by the lenient branch.
+func isContractJSON(out string) bool {
+	if !strings.HasPrefix(out, "{") {
+		return false
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal([]byte(out), &fields) != nil {
+		return false
+	}
+	for _, name := range []string{"value", "expires_at", "old_valid_until", "meta"} {
+		if _, ok := fields[name]; ok {
+			return true
+		}
+	}
+	return false
 }

@@ -179,7 +179,10 @@ func (a *App) rotateBulk(ctx context.Context, rest []string, plan, all, due bool
 		if k.rotates == "" {
 			continue // no rotator configured
 		}
-		if !all {
+		// --due filters by recorded expiry; --all on its own takes every
+		// key with a rotator. Combining them ("rotate --all --due", the
+		// documented sweep) must still filter, so the gate is on due.
+		if due {
 			spec, ok, err := a.loadSpec(ctx, k.name)
 			if err != nil || !ok {
 				bulk.Failed = append(bulk.Failed, machine.RotationFailure{
