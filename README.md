@@ -106,10 +106,11 @@ in place.
 | Command | What it does (plain English) |
 |---|---|
 | `keysec set <key>` | Save a secret. If you don't type a value, it **asks you, hidden** (like a password field) |
-| `keysec runs [--yes]` | The audit log of every secret handoff (`run`) — tamper-evident. `--yes` clears it deliberately, after review |
+| `keysec runs [--yes]` | The audit log of every secret handoff (`run`), sealed with a keyed hash chain. `--yes` clears it deliberately, after review |
 | `keysec run --env NAME=key [--mask] [--] cmd` | Inject exactly the secrets you name into one command as environment variables only — never disk, history, or `.env` files. With `--mask`, secret values a script prints come out as `***` |
 | `keysec get <key>` | Print the secret — for you, or for a script |
 | `keysec update <key>` | Change a secret, but only if it already exists |
+| `keysec version` | Which keysec this is — release tag, commit, and platform (also `--version`) |
 | `keysec rm <key>` | Delete a secret (and its rotator) — **asks you to confirm first** |
 | `keysec list` | Show everything keysec has saved, straight from the Keychain, with dates and rotator kinds |
 | `keysec rotate <key>` | Rotate one secret through its rotator |
@@ -292,7 +293,7 @@ speaks git's own protocol and ignores `--json`.
 5. `git-credential` shim (git protocol → Keychain), no index anymore
 6. `rotator set|get|rm` and `rotate`, `rotate --all [--due]`, `audit`, `doctor`
 7. one Go binary (standard library plus `golang.org/x/term` for hidden prompts), installs to `/usr/local/bin/keysec`
-8. audited handoffs: `run` requires explicit keys, records every handoff in a tamper-evident log (`runs`, `--yes`), `--mask` scrubs child output
+8. audited handoffs: `run` requires explicit keys, records every handoff in a sealed, append-only log (`runs`, `--yes`), `--mask` scrubs child output
 
 **Success looks like:** `keysec set`/`get`/`list` feel like a friendly app;
 your `gitlab.example.com` token lives in the Keychain; git authenticates through it;

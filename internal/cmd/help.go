@@ -24,8 +24,9 @@ Commands
   keysec rotate --all [--due]   rotate every (due) key at once
   keysec rotator get|set|rm     inspect or configure a key's rotator
   keysec audit [--within <dur>] lifecycle report of every key
-  keysec runs [--yes]           tamper-evident log of every secret handoff
+  keysec runs [--yes]           sealed log of every secret handoff
   keysec doctor [--migrate]     check the vault, or import a v0.1 index
+  keysec version                which keysec this is (also --version)
   keysec git-credential <act>   for git, not for humans (see below)
 
 Keys are friendly names; every key lives under one reserved service.

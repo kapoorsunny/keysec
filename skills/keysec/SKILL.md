@@ -55,7 +55,8 @@ fresh so the installed binary matches the checkout.
 | `keysec audit [--within <dur>]` | Lifecycle report; `--within` (default 14d) marks `EXPIRES_SOON` |
 | `keysec doctor [--migrate] [--yes]` | Health report, or migrate a v0.1 `keys.json` index |
 | `keysec run --env NAME=key [--mask] [--] cmd` | Inject exactly the secrets you name into one child process as env vars; never disk/history/`.env`. Wildcards refused. `--mask` redacts secret values from the child's output |
-| `keysec runs [--yes]` | Show the tamper-evident handoff log of every secret-bearing `run`; `--yes` clears it deliberately |
+| `keysec runs [--yes]` | Show the handoff log of every secret-bearing `run`, sealed with a keyed hash chain; `--yes` clears it deliberately |
+| `keysec version` | Report the running version: release tag, commit, platform (`--json` for `{version,revision,modified,go,os,arch}`) |
 | `keysec git-credential <get\|approve\|reject>` | For git, not for humans — see Git integration |
 
 **Key names:** letters, digits, dots, dashes; 1–255 chars; no leading/trailing
@@ -126,7 +127,7 @@ script), documented in `docs/script-rotation.md`.
 `keysec run --env TOKEN=mytoken [--mask] [--] <cmd>` hands one child
 process exactly the keys you name — **wildcards are refused**, so a
 command can't silently receive "all the secrets". Every secret-bearing
-run is recorded in a tamper-evident, append-only log:
+run is recorded in an append-only log sealed with a keyed hash chain:
 
 ```bash
 keysec run --mask --env TOKEN=mytoken -- ./deploy.sh
